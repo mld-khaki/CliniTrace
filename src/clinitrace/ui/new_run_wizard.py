@@ -11,6 +11,7 @@ streamlit_app calls when the user picks 'Start new run' from the menu.
 
 from __future__ import annotations
 
+import html
 import io
 import json
 import re
@@ -348,6 +349,122 @@ def _render_step_preview() -> None:
 # ---------------------------------------------------------------------------
 
 
+def _stage1_plan(spec: Spec, ltm: LTM, mode: str) -> list[dict[str, object]]:
+    """Pre-flight Stage 1 plan: what SR will do for each entry, decided
+    BEFORE the orchestrator runs.
+
+    Streamlit cannot repaint during the blocking orch.run() call, so a
+    live per-entry progress indicator isn't physically possible without
+    streaming or threading-based refactors that this codebase doesn't yet
+    have. The next-best honest signal is to compute the plan up front and
+    render it as a table — the user sees, per entry: "this will use LTM
+    cache" vs "this will call the LLM" vs "this will short-circuit
+    because no ambiguity_notes is set" — before any LLM call fires.
+
+    Decision rules mirror the actual logic in agents/sr.py:_review_one:
+      1. LTM hit on ambiguity_signature → "ltm cache"
+      2. ambiguity_notes is blank → "skip (no notes)"  [matches the
+         live-mode short-circuit added recently]
+      3. live mode + non-blank notes → "🤖 call LLM"
+      4. stub mode + non-blank notes → "⚙️ stub heuristic"
+    """
+    plan: list[dict[str, object]] = []
+    for entry in spec.derivations:
+        sig = entry.ambiguity_signature()
+        ltm_hit = ltm.find_ambiguity_resolution(sig) is not None
+        notes_present = bool(entry.ambiguity_notes and entry.ambiguity_notes.strip())
+
+        if ltm_hit:
+            decision = "📁 LTM cache"
+            cost = "no LLM call"
+        elif not notes_present:
+            decision = "⚙️ skip"
+            cost = "no LLM call (no ambiguity_notes)"
+        elif mode == "live":
+            decision = "🤖 call LLM"
+            cost = "1 Ollama call"
+        else:
+            decision = "⚙️ stub"
+            cost = "no LLM call (stub mode)"
+
+        plan.append({
+            "Variable": entry.name,
+            "Rule type": entry.rule_kind,
+            "Plan": decision,
+            "Cost": cost,
+        })
+    return plan
+
+
+def _confidence_band(conf: float) -> tuple[str, str, str]:
+    """Return (keyword, color_hex, tooltip) for a proposal confidence.
+
+    The confidence values are **heuristic priors** hardcoded per proposer
+    in `agents/spec_generator.py` — they are NOT model-generated
+    probabilities. They reflect how strong the pattern signal is and how
+    confident the developer is that the body values are right out of the
+    box. LLM-augmented proposals are capped so an LLM never out-ranks a
+    deterministic shape signature.
+
+    The four bands give the reviewer a one-word read instead of having
+    to interpret a number:
+      Strong (≥0.90):   clear pattern + body likely right.
+      Likely (0.70–0.89): right kind of derivation, body values are guesses.
+      Tentative (0.50–0.69): pattern matched but cutoffs are placeholders.
+      Weak (<0.50):     low signal, consider skipping.
+
+    Colors follow clinical UX conventions: green = safe, blue = neutral,
+    amber = caution, red = warning. The badge is the only visual cue —
+    a colored container border would have required CSS injection and
+    Streamlit doesn't expose container colors directly.
+    """
+    if conf >= 0.90:
+        return ("Strong", "#16a34a", (
+            f"Strong match ({conf:.0%}) — clear pattern signal and the body "
+            "values are likely right. Worth a quick sanity-check before "
+            "accepting, but the derivation is almost certainly meaningful "
+            "for your dataset. (Heuristic prior, not a learned probability.)"
+        ))
+    if conf >= 0.70:
+        return ("Likely", "#2563eb", (
+            f"Likely match ({conf:.0%}) — the right kind of derivation, but "
+            "the body values (value mappings, edge cuts, etc.) are guesses. "
+            "Review the rule body before accepting. LLM-augmented proposals "
+            "land in this band by design."
+        ))
+    if conf >= 0.50:
+        return ("Tentative", "#d97706", (
+            f"Tentative match ({conf:.0%}) — pattern matched but the "
+            "cutoffs / thresholds are placeholders. The agent does not "
+            "know your clinical thresholds. Definitely edit the body "
+            "before accepting."
+        ))
+    return ("Weak", "#dc2626", (
+        f"Weak match ({conf:.0%}) — low signal. Consider skipping this "
+        "proposal unless you can rewrite the body yourself."
+    ))
+
+
+def _confidence_badge_html(conf: float) -> str:
+    """Render the confidence keyword as a coloured pill with an <abbr>
+    tooltip, followed by the raw percentage. Returns ready-to-use HTML
+    (caller passes it to st.markdown with unsafe_allow_html=True).
+
+    The <abbr> tag is the same affordance the glossary uses, so dotted-
+    underline + native tooltip is consistent across the app.
+    """
+    keyword, color, tip = _confidence_band(conf)
+    return (
+        f'<abbr title="{html.escape(tip)}" '
+        f'style="text-decoration:none;cursor:help;">'
+        f'<span style="background-color:{color};color:white;'
+        f'padding:1px 8px;border-radius:10px;font-size:0.72em;'
+        f'font-weight:600;letter-spacing:0.02em;">{keyword}</span>'
+        f'&nbsp;<span style="color:#666;font-size:0.82em;">'
+        f'({conf:.0%})</span></abbr>'
+    )
+
+
 def _render_auto_suggest_panel() -> Spec | None:
     """Render the agentic IDC-from-dataset workflow inside Step 3.
 
@@ -391,14 +508,16 @@ def _render_auto_suggest_panel() -> Spec | None:
     cached = st.session_state.get(cache_key)
 
     if cached is None or cached.get("fingerprint") != fingerprint:
-        # Stage 1 — deterministic profile + pattern match. Always fast,
-        # but we wrap in the indicator so the user can see this is the
-        # "agent at work" step (and that no LLM was contacted).
+        # Stage 1 — deterministic by design. The profile + pattern proposer
+        # *never* calls the LLM (it would be the wrong tool — these are
+        # regex / shape rules). Pass deterministic=True so the indicator
+        # honestly says so regardless of LLM mode, instead of routing
+        # through the live/stub branches.
         with llm_indicator.llm_call(
             "Dataset profile + pattern proposer",
             purpose="Read column dtypes, ranges, cardinality and match against "
                     "five clinical idioms (age, flag, duration, compound, risk).",
-            expanded=False,
+            deterministic=True,
         ) as ind:
             profile = spec_generator.profile_dataset(df)
             proposals = spec_generator.propose_derivations(df, profile)
@@ -407,17 +526,34 @@ def _render_auto_suggest_panel() -> Spec | None:
                 f"{len(proposals)} derivation(s) deterministically."
             )
 
-        # Stage 2 — LLM augmentation. Only meaningful in live mode; the
-        # indicator is honest about that.
+        # Stage 2 — LLM augmentation. Genuine LLM call site (when live).
+        # We use getattr() so a stale `spec_generator` module (e.g. a
+        # Streamlit session started before this function was added) falls
+        # back to "no augmentation" with a clear note, instead of crashing
+        # the wizard with AttributeError. Restart still recommended, but
+        # the page stays usable in the meantime.
         with llm_indicator.llm_call(
             "LLM augmentation — find derivations the patterns missed",
-            purpose="Send column profile + existing proposals to the LLM; "
+            purpose="Send the column profile + existing proposals to the LLM; "
                     "ask for additional clinically useful derivations.",
             expanded=True,
+            position=(1, 1),  # one-shot augmentation; position helps tag the call site
         ) as ind:
-            augmented = spec_generator.augment_proposals_with_llm(
-                df, profile, proposals,
+            augment_fn = getattr(
+                spec_generator, "augment_proposals_with_llm", None,
             )
+            if augment_fn is None:
+                ind.note(
+                    "⚠️ `spec_generator.augment_proposals_with_llm` is not "
+                    "available on the loaded module. This usually means "
+                    "Streamlit was started before the function was added — "
+                    "stop the server (Ctrl+C) and run `python -m clinitrace "
+                    "ui` again to pick up the change. Skipping augmentation "
+                    "for this run."
+                )
+                augmented: list[dict] = []
+            else:
+                augmented = augment_fn(df, profile, proposals)
             if augmented:
                 ind.note(
                     f"LLM proposed **{len(augmented)}** additional "
@@ -425,7 +561,7 @@ def _render_auto_suggest_panel() -> Spec | None:
                     ", ".join(f"`{p['name']}`" for p in augmented)
                 )
                 proposals = proposals + augmented
-            elif current_mode() == "live":
+            elif augment_fn is not None and current_mode() == "live":
                 ind.note(
                     "LLM returned no additional proposals — the "
                     "deterministic patterns already covered the dataset's "
@@ -502,18 +638,36 @@ def _render_auto_suggest_panel() -> Spec | None:
         st.session_state.setdefault(rationale_key, prop["rationale"])
 
         with st.container(border=True):
-            cols = st.columns([0.5, 2, 4, 3])
+            # Wider first column (was 0.5) so the checkbox sits comfortably
+            # on one line. Streamlit was wrapping the "Use" label
+            # character-per-character into a vertical strip at 0.5.
+            cols = st.columns([0.8, 2, 4, 3], vertical_alignment="center")
             with cols[0]:
                 st.checkbox(
                     "Use",
                     key=accept_key,
+                    label_visibility="collapsed",
                     help="Include this derivation in the generated IDC.",
                 )
             with cols[1]:
+                # Four-line label: explicit "rule type" caption above the
+                # value (otherwise reviewers don't always realise that "bin"
+                # is the *kind* of transformation), then the rule_kind
+                # itself with a glossary tooltip (dotted underline + hover
+                # definition), then the confidence badge, then inputs.
+                #
+                # We use glossary.term() so the affordance matches the rest
+                # of the app — same dotted-underline pattern shown for IDC,
+                # HITL, SR, etc. The GLOSSARY dict already has plain-English
+                # definitions for all five registered rule_kinds.
+                rule_kind = prop["rule_kind"]
                 st.markdown(
-                    f"**{prop['rule_kind']}** &nbsp; "
-                    f"<span style='color:#666;font-size:0.85em'>"
-                    f"({prop['_confidence']:.0%})</span>",
+                    "<span style='font-size:0.72em;color:#888;"
+                    "text-transform:uppercase;letter-spacing:0.05em;'>"
+                    "Rule type</span><br>"
+                    f"<span style='font-size:1.05em;font-weight:600;'>"
+                    f"{glossary.term(rule_kind)}</span><br>"
+                    + _confidence_badge_html(prop["_confidence"]),
                     unsafe_allow_html=True,
                 )
                 st.caption(f"inputs: `{', '.join(prop['inputs'])}`")
@@ -539,6 +693,18 @@ def _render_auto_suggest_panel() -> Spec | None:
             patched["name"] = st.session_state[name_key].strip() or prop["name"]
             patched["rationale"] = st.session_state[rationale_key]
             accepted.append(patched)
+
+    # Cross-list footer hint pointing at the IDC Rulebook. The Rulebook
+    # page renders an interactive Try-it sandbox for each rule_kind, plus
+    # any validated bodies the system has learned (LTM rule_patterns).
+    # That's the best place for a reviewer to develop intuition for what
+    # `bin` vs `flag` vs `duration` etc. actually do.
+    st.caption(
+        "💡 Hover any **rule type** above for a quick definition. "
+        "For full documentation — including interactive Try-it sandboxes "
+        "and validated bodies from past tasks — visit the "
+        "**IDC Rulebook** page in the main menu."
+    )
 
     if not accepted:
         st.info("Tick at least one **Use** checkbox to build the IDC.")
@@ -632,11 +798,30 @@ def _render_step_spec() -> None:
             raw = uploaded.read()
             st.session_state["wizard_spec_bytes"] = raw
             st.session_state["wizard_spec_name"] = uploaded.name
-            try:
-                data = yaml.safe_load(raw.decode("utf-8"))
-                spec = Spec.model_validate(data)
-            except Exception as exc:  # noqa: BLE001
-                st.error(f"Could not load IDC: {exc}")
+            # The model_validate() path runs the spec_triage agent on any
+            # unknown rule_kind (see spec/model.py — model_validator
+            # "triage_rule_kind" with mode='before'). Triage uses three
+            # signals — text similarity, body shape, and (in live mode)
+            # an LLM semantic match. We wrap parse + validate in the
+            # indicator so the user can see when triage fires.
+            with llm_indicator.llm_call(
+                "Parse + validate YAML IDC",
+                purpose="Pydantic schema check. If a rule_kind is unknown, "
+                        "the spec_triage agent runs (text + shape + optional LLM).",
+                deterministic=True,
+            ) as ind:
+                try:
+                    data = yaml.safe_load(raw.decode("utf-8"))
+                    spec = Spec.model_validate(data)
+                    ind.note(
+                        f"YAML parsed and validated — "
+                        f"{len(data.get('derivations', []))} derivation(s)."
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    # Triage's error message lands here when a rule_kind is
+                    # unknown; the indicator's error label keeps the rich
+                    # text intact for the user to read.
+                    st.error(f"Could not load IDC: {exc}")
     else:
         demo_path = _bundled_example_spec_path()
         if demo_path is None:
@@ -734,39 +919,108 @@ def _render_step_run() -> None:
             "was launched."
         )
 
+    # Two-rerun pattern so the Start button visibly disables during the run.
+    # Streamlit naturally blocks new clicks while orch.run() is executing,
+    # but the BUTTON ITSELF still RENDERS as enabled because its disabled
+    # state is decided at render time. By gating on a session_state flag
+    # and rerunning between click and execute, we get a clean
+    # "▶ Start task" → "⏳ Running task…" visual transition.
+    in_progress = st.session_state.get("wizard_run_in_progress", False)
     cols = st.columns([1, 1, 4])
     with cols[0]:
-        if st.button("← Back", key="run_back"):
+        if st.button("← Back", key="run_back", disabled=in_progress):
             _set_step(3)
             st.rerun()
     with cols[1]:
-        start = st.button("▶ Start task", type="primary", key="run_start")
+        if in_progress:
+            # Render the in-progress placeholder. Disabled + no on-click so
+            # a stray double-click while the rerun is in flight is harmless.
+            st.button(
+                "⏳ Running task…",
+                disabled=True,
+                key="run_start_inprogress",
+                type="primary",
+            )
+            start = False
+        else:
+            start = st.button(
+                "▶ Start task",
+                type="primary",
+                key="run_start",
+            )
 
-    if not start:
-        return
+    if start and not in_progress:
+        # Click landed on a fresh page render — flip the flag and rerun so
+        # the next render shows the disabled "Running…" button BEFORE we
+        # start the long orch.run() call.
+        st.session_state["wizard_run_in_progress"] = True
+        st.rerun()
+
+    if not in_progress:
+        return  # waiting for the user to click; nothing to execute
 
     out_dir = Path(st.session_state["wizard_out_dir"])
     ltm_path = Path(st.session_state["wizard_ltm_path"])
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    status = st.status("Running pipeline...", expanded=True)
+    # Make the run-status label honest about LLM mode so the user can see at
+    # a glance whether this run was agentic (live) or stubbed. The pipeline
+    # itself runs multiple LLM call sites (SR per entry, CG per derivation)
+    # interspersed with deterministic V/R/A — exact per-call indicators
+    # would need orchestrator-side hooks; mode-tagging the outer status box
+    # is the right granularity for this surface.
+    mode = current_mode()
+    mode_label = (
+        "🤖 Running agentic pipeline (LLM enabled — SR + CG call Ollama)"
+        if mode == "live"
+        else "⚙️ Running deterministic pipeline (LLM disabled in Settings)"
+    )
+    # Open the LTM before computing the plan so we can probe for cached
+    # resolutions per entry. The same handle is passed into orch.run() so
+    # we only pay the SQLite open cost once.
     ltm = LTM(ltm_path)
+
+    # ----- Stage 1 plan (pre-flight) -------------------------------------
+    # Rendered OUTSIDE the status box so it stays visible during the
+    # blocking orch.run() call below — st.status's content updates aren't
+    # flushed to the browser until the script yields, but content added
+    # before the blocking call IS visible while the spinner runs.
+    plan = _stage1_plan(spec, ltm, mode)
+    llm_calls_expected = sum(1 for p in plan if "call LLM" in str(p["Plan"]))
+    cache_hits = sum(1 for p in plan if "LTM cache" in str(p["Plan"]))
+    skips = sum(1 for p in plan if "skip" in str(p["Plan"]))
+    st.markdown(
+        f"**Stage 1 plan — Spec Review over {len(plan)} entries:** "
+        f"📁 {cache_hits} LTM cache hit(s), ⚙️ {skips} skipped, "
+        f"🤖 **{llm_calls_expected} LLM call(s) expected**."
+    )
+    st.dataframe(pd.DataFrame(plan), width="stretch", hide_index=True)
+    st.caption(
+        "Streamlit can't repaint the page during a blocking pipeline call, "
+        "so per-entry progress can't be streamed live. The plan above shows "
+        "exactly what Stage 1 will do; counts below appear once the run "
+        "completes."
+    )
+
+    status = st.status(mode_label, expanded=True)
     try:
-        status.write("Stage 0: validating dataset...")
+        status.write("**Stage 0** — Validating source columns against the dataset…")
         status.write(
-            f"Stage 1: running Specification Review over "
-            f"{len(spec.derivations)} entries..."
+            f"**Stage 1** — Running 🤖 Spec Reviewer over "
+            f"{len(spec.derivations)} derivation(s); "
+            f"expecting **{llm_calls_expected} LLM call(s)** "
+            f"({cache_hits} cached, {skips} short-circuited)…"
         )
         result = orch.run(
             spec=spec,
             dataset=df,
             out_dir=out_dir,
             ltm=ltm,
-            llm_mode=current_mode(),
+            llm_mode=mode,
             inbox_poll_interval=1.0,
             inbox_poll_timeout=300.0,
         )
-        status.write("Stage 2-5: DAG planning + code gen + verification...")
+        status.write("**Stage 2-5** — DAG planning + 🤖 CG normalisation + ⚙️ V verification + ⚙️ A audit.")
         # Persist the user-supplied task name (if any) inside the run dir so
         # it appears in selectors and summaries forever after.
         task_name = st.session_state.get("wizard_task_name")
@@ -774,7 +1028,27 @@ def _render_step_run() -> None:
             task_meta.save(result.run_dir, {"task_name": task_name})
         st.session_state["wizard_run_result"] = result
         st.session_state["wizard_run_error"] = None
-        status.update(label="✅ Task complete", state="complete")
+        # Surface the LLM activity counts so the user can SEE whether the
+        # agentic loop actually fired (or whether everything cache-hit).
+        counts = result.counts
+        status.write(
+            f"**Counts** — SR findings: {counts.get('sr_findings', 0)}, "
+            f"auto-resolved from LTM: {counts.get('sr_auto_resolved', 0)}, "
+            f"HITL tickets opened: {counts.get('hitl_tickets_opened', 0)}, "
+            f"CG LTM hits: {counts.get('cg_ltm_hits', 0)}, "
+            f"derivations verified: {counts.get('derivations_verified', 0)}."
+        )
+        status.update(
+            label=(
+                f"✅ {'🤖 Agentic' if mode == 'live' else '⚙️ Stub'} "
+                f"task complete — {counts.get('derivations_verified', 0)} "
+                f"derivation(s) verified"
+            ),
+            state="complete",
+        )
+        # Clear the in-progress flag BEFORE advancing the step so the
+        # Start button reseeds on its next render.
+        st.session_state["wizard_run_in_progress"] = False
         _set_step(5)
         st.rerun()
     except orch.DatasetValidationError as exc:
@@ -786,6 +1060,10 @@ def _render_step_run() -> None:
         )
         status.update(label="❌ Run failed", state="error")
     finally:
+        # ALWAYS clear the in-progress flag on any exit path — otherwise a
+        # failed run would leave the user stuck on a permanently "Running…"
+        # button until they refresh the page.
+        st.session_state["wizard_run_in_progress"] = False
         ltm.close()
 
     if st.session_state.get("wizard_run_error"):

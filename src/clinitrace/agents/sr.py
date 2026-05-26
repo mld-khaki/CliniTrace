@@ -70,6 +70,21 @@ def _review_one(entry: SpecEntry, ltm: LTM | None) -> SrFinding | None:
                 source_model=None,
             )
 
+    # Short-circuit when the spec author left ambiguity_notes blank. This
+    # mirrors what the stub already does (sr_ambiguity_stub uses the
+    # presence of ambiguity_notes as its trigger). Without this gate, live
+    # mode burns one Ollama call per entry to almost always come back with
+    # "no ambiguity" — particularly painful for auto-generated specs where
+    # the same agent wrote both rationale and body, so by construction no
+    # gap exists.
+    #
+    # If a reviewer wants the live LLM to look for gaps even without an
+    # explicit ambiguity_notes hint, they can write any non-empty value
+    # (e.g. "review for completeness") in Step 3 — the gate above falls
+    # through and the LLM call fires.
+    if not entry.ambiguity_notes or not entry.ambiguity_notes.strip():
+        return None
+
     llm_finding: SrAmbiguityFinding | None = call_sr_ambiguity(entry.model_dump())
     if llm_finding is None:
         return None

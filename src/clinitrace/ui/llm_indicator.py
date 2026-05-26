@@ -1,18 +1,27 @@
 """Visible LLM-call lifecycle indicator for the Streamlit UI.
 
-When a user clicks a button that triggers an LLM call, they should see:
+When a user triggers an agentic step, they should see one of three
+honestly-distinct status boxes:
 
-  1. **Sending** — the request is being prepared.
-  2. **Waiting** — the model is producing tokens (Streamlit's `st.status`
-     renders a spinner while the with-block is open).
-  3. **Received** — completion latency and (in live mode) the model name
-     that responded.
+  1. ⚙️ **Deterministic by design** — the step never calls the LLM,
+     regardless of CLINITRACE_LLM. E.g. dataset profiling, pattern
+     proposal, audit writes. Use `llm_call(..., deterministic=True)`.
 
-In stub mode, the indicator is explicit about NOT calling an LLM
-("Stub mode — deterministic logic, no LLM contact"). Hiding the
-difference would make the demo dishonest about what's happening when —
-the whole point of these visual indicators is to make the agentic /
-deterministic boundary visible to a Sanofi reviewer.
+  2. ⚙️ **Stub fallback** — the step COULD call the LLM, but the user
+     has stub mode active (LLM disabled in Settings). Indicator says so
+     explicitly and points at Settings.
+
+  3. 🤖 **Live LLM** — the step is actually contacting Ollama. Shows
+     model name + timing. State `running` keeps st.status's spinner
+     visible during the blocking call; on exit prints elapsed seconds
+     and a fast/normal/slow tag.
+
+Why three states and not two:
+  Conflating "deterministic by design" with "stub fallback" is dishonest
+  demoware. The first is a fixed architectural choice (V/R/A/O never
+  call LLMs); the second is a user-controlled disable. A Sanofi reviewer
+  asking "why didn't the LLM fire here?" deserves the right answer per
+  step, not a generic "stub mode is on" message.
 
 Architectural note:
   Streamlit cannot tick a timer DURING a blocking LLM call — Python is
@@ -41,35 +50,84 @@ def llm_call(
     purpose: str | None = None,
     expanded: bool = True,
     deterministic: bool = False,
+    position: tuple[int, int] | None = None,
 ) -> Iterator["LLMCallController"]:
-    """Show an LLM-call lifecycle box around a blocking call.
+    """Show a lifecycle box around a blocking step.
 
     Args:
         label: short title shown in the status box (e.g. "Auto-suggest
-            derivations", "Triage unknown rule_kind").
+            derivations", "Triage unknown rule_kind", "Pipeline run").
         purpose: optional one-line explanation rendered inside the box,
             visible while the call is running.
-        expanded: whether the box starts expanded (live mode usually
-            wants True so the user sees the model name; stub mode False).
+        expanded: whether the box starts expanded. Live mode usually
+            wants True so the user sees the model name; deterministic
+            and stub branches use a compact collapsed view.
         deterministic: True when the wrapped work definitely does not
-            contact the LLM (e.g. profiling a dataset). Forces the ⚙️
-            "deterministic" styling regardless of CLINITRACE_LLM. Honesty
-            knob — a step that doesn't call out should not look like it does.
+            contact the LLM, by design (e.g. dataset profiling, audit
+            writes). Routes to the ⚙️ deterministic-by-design branch
+            below. Honesty knob — a step that doesn't call out should
+            not look like it does, AND should not be misrepresented as
+            a stub fallback.
+        position: optional (current, total) tuple shown as "x / y" in
+            the running label. Useful when this is one of N LLM calls
+            in the same workflow (e.g. SR over 5 spec entries → pass
+            position=(3, 5) on the 3rd entry).
 
-    Yields a controller object the caller can use to write extra status
-    lines mid-call (visible only AFTER the with-block exits, due to
-    Streamlit's render model).
+    Yields:
+        LLMCallController — caller can attach detail lines via .note()
+        (visible once the with-block exits; Streamlit can't paint
+        during a blocking Python call).
+
+    The three internal branches share the same controller protocol so
+    callers don't have to know which branch fired.
     """
-    mode = "stub" if deterministic else current_mode()
-    if mode == "stub":
+    # Branch 1: deterministic-by-design.
+    if deterministic:
         with st.status(
             f"⚙️ Deterministic — {label}",
             state="running",
             expanded=False,
         ) as status:
+            if purpose:
+                status.write(f"_{purpose}_")
             status.write(
-                "Stub mode is active: the LLM is **not** being contacted. "
-                "Enable the LLM in Settings to see the live agentic loop."
+                "This step is deterministic by design — it never contacts "
+                "the LLM, regardless of Settings."
+            )
+            ctrl = LLMCallController(status, mode="deterministic", started=time.monotonic())
+            try:
+                yield ctrl
+            except Exception as exc:  # noqa: BLE001
+                elapsed_ms = (time.monotonic() - ctrl.started) * 1000
+                status.update(
+                    label=f"⚠️ {label} failed after {elapsed_ms:.0f}ms — {exc}",
+                    state="error",
+                )
+                raise
+            elapsed_ms = (time.monotonic() - ctrl.started) * 1000
+            status.update(
+                label=f"⚙️ Deterministic — {label} ({elapsed_ms:.0f}ms)",
+                state="complete",
+                expanded=False,
+            )
+        return
+
+    mode = current_mode()
+
+    # Branch 2: stub fallback (LLM disabled in Settings).
+    if mode == "stub":
+        with st.status(
+            f"⚙️ Stub — {label}",
+            state="running",
+            expanded=False,
+        ) as status:
+            if purpose:
+                status.write(f"_{purpose}_")
+            status.write(
+                "**Stub mode** — this step would call the LLM, but it is "
+                "**disabled in Settings**. Using deterministic fallback "
+                "logic instead. Enable the LLM in Settings → save to see "
+                "the live agentic loop."
             )
             ctrl = LLMCallController(status, mode="stub", started=time.monotonic())
             try:
@@ -77,31 +135,55 @@ def llm_call(
             except Exception as exc:  # noqa: BLE001
                 elapsed_ms = (time.monotonic() - ctrl.started) * 1000
                 status.update(
-                    label=f"⚠️ Deterministic step failed after {elapsed_ms:.0f}ms — {exc}",
+                    label=f"⚠️ Stub step failed after {elapsed_ms:.0f}ms — {exc}",
                     state="error",
                 )
                 raise
             elapsed_ms = (time.monotonic() - ctrl.started) * 1000
             status.update(
-                label=f"⚙️ Deterministic — {label} ({elapsed_ms:.0f}ms, no LLM)",
+                label=f"⚙️ Stub — {label} ({elapsed_ms:.0f}ms, no LLM)",
                 state="complete",
                 expanded=False,
             )
         return
 
-    # Live mode: show the model name so the user can verify configuration
-    # matches what they set in Settings.
+    # Branch 3: live LLM. The running label is the user's main signal,
+    # so we pack it with concrete info: model name + server endpoint +
+    # position counter. That answers "what's being contacted?" without
+    # the user having to expand the box.
     try:
         model_name = ollama.model_name()
     except Exception:  # noqa: BLE001
         model_name = "(unknown model)"
+    try:
+        # _config() returns (url, model, timeout); cheap to call, re-reads
+        # env on every invocation so Settings changes apply.
+        server_url, _, timeout_s = ollama._config()
+    except Exception:  # noqa: BLE001
+        server_url = "(unknown URL)"
+        timeout_s = None
+
+    # Compact endpoint for the label (strip protocol so the line stays short).
+    short_endpoint = server_url.replace("http://", "").replace("https://", "")
+    position_str = f" — call {position[0]} / {position[1]}" if position else ""
+
+    running_label = (
+        f"🤖 Communicating with `{model_name}` @ `{short_endpoint}`"
+        f"{position_str} — {label}…"
+    )
+
     with st.status(
-        f"🤖 LLM → {label}",
+        running_label,
         state="running",
         expanded=expanded,
     ) as status:
         status.write(f"**Model**: `{model_name}`")
-        status.write(f"📤 Sending request… (timer starts now)")
+        status.write(f"**Server**: `{server_url}`")
+        if timeout_s is not None:
+            status.write(f"**Timeout**: `{float(timeout_s):.0f}s`")
+        if position is not None:
+            status.write(f"**Position**: call **{position[0]} of {position[1]}**")
+        status.write("📤 Sending request… (timer starts now; spinner runs until response or timeout)")
         if purpose:
             status.write(f"_{purpose}_")
         ctrl = LLMCallController(status, mode="live", started=time.monotonic())
@@ -110,7 +192,10 @@ def llm_call(
         except Exception as exc:  # noqa: BLE001
             elapsed = time.monotonic() - ctrl.started
             status.update(
-                label=f"⚠️ LLM error after {elapsed:.1f}s — {exc}",
+                label=(
+                    f"⚠️ LLM error after {elapsed:.1f}s on `{model_name}` "
+                    f"@ `{short_endpoint}`{position_str} — {exc}"
+                ),
                 state="error",
             )
             raise
@@ -119,25 +204,39 @@ def llm_call(
         # struggling vs. when the call was crisp.
         speed_tag = "fast" if elapsed < 2 else ("normal" if elapsed < 10 else "slow")
         status.update(
-            label=f"🤖 LLM ← {label} ({elapsed:.1f}s, {speed_tag})",
+            label=(
+                f"🤖 LLM response ← `{model_name}` @ `{short_endpoint}`"
+                f"{position_str} — {label} ({elapsed:.1f}s, {speed_tag})"
+            ),
             state="complete",
             expanded=False,
         )
 
 
 class LLMCallController:
-    """Handle the caller uses to add detail lines mid-call.
+    """Handle the caller uses to add detail lines to an open status box.
 
-    Lines added via `note()` appear in the status box once it re-renders
-    (which is when the with-block exits — Streamlit can't paint during a
-    blocking Python call). So in practice these lines are best for
-    post-mortem detail: "matched rule_kind 'bin' with confidence 0.87",
-    "augmented 2 new derivations", etc.
+    The .mode attribute lets callers gate behaviour on whether they're
+    in "deterministic", "stub", or "live" without having to re-read
+    current_mode() inside the with-block (which could disagree with the
+    branch we actually rendered).
+
+    Lines added via .note() appear in the status box once it re-renders
+    (which is when the with-block exits — Streamlit can't paint during
+    a blocking Python call). So .note() is best for post-mortem detail:
+    "matched rule_kind 'bin' with confidence 0.87", "augmented 2 new
+    derivations", etc.
     """
 
-    def __init__(self, status: "st.delta_generator.StatusContainer", *, mode: str, started: float):
+    def __init__(
+        self,
+        status: "st.delta_generator.StatusContainer",
+        *,
+        mode: str,
+        started: float,
+    ):
         self._status = status
-        self.mode = mode
+        self.mode = mode  # "deterministic" | "stub" | "live"
         self.started = started
 
     def note(self, text: str) -> None:

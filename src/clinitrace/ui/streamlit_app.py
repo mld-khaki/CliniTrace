@@ -1207,6 +1207,20 @@ _MENU_ICONS = [
 
 def main() -> None:
     st.set_page_config(page_title="CliniTrace", layout="wide")
+
+    # ----- Apply background wallpaper -----------------------------------
+    # The wallpaper lives in <repo_root>/docs/ alongside other
+    # documentation assets. We resolve the path relative to this file so
+    # the call works no matter what CWD Streamlit was launched from.
+    # Apply BEFORE other CSS so our max-width / centering rules can
+    # cascade over (and the wallpaper's `background-image` doesn't
+    # collide with them — they target different selectors).
+    from clinitrace.ui import wallpaper  # local import: keeps module-level imports tidy
+    _wallpaper_path = (
+        Path(__file__).resolve().parents[3] / "docs" / "background_clinitrace.png"
+    )
+    wallpaper.apply(_wallpaper_path)
+
     st.markdown("""
         <style>
             /* Hide the empty sidebar nav (we removed the path inputs). */
