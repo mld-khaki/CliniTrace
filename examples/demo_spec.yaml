@@ -1,0 +1,77 @@
+version: "1"
+derivations:
+
+  - name: AGE_GROUP
+    inputs: [age]
+    rule_kind: bin
+    rule_body:
+      edges: [18, 65]
+      labels: [minor, adult, senior]
+    rationale: >
+      Standard adult-stratum binning. Patients under 18 are minors;
+      18 to under 65 is adult; 65 and above is senior.
+
+  - name: RESPONSE_FLAG
+    inputs: [response]
+    rule_kind: flag
+    rule_body:
+      map:
+        responder: "Y"
+        non_responder: "N"
+    rationale: >
+      Map response to a binary flag. Responder maps to Y; non-responder
+      maps to N.
+    ambiguity_notes: >
+      Behaviour for response == 'unknown' is not defined in the protocol.
+      Clinical lead needs to confirm whether unknown should propagate as
+      null, be flagged as 'U' for downstream review, or be excluded entirely.
+
+  - name: TREATMENT_DURATION
+    inputs: [treatment_start_date, visit_date]
+    rule_kind: duration
+    rule_body:
+      start_column: treatment_start_date
+      end_column: visit_date
+      unit: days
+      null_handling: "null"
+    rationale: >
+      Days from treatment start to the visit date. Used to stratify visits
+      by exposure window in downstream analysis.
+
+  - name: ANALYSIS_POP_FLAG
+    inputs: [age, response]
+    rule_kind: compound
+    rule_body:
+      conditions:
+        - { column: age,      op: ">=", value: 18 }
+        - { column: response, op: "not_null" }
+      combinator: and
+      true_value: "Y"
+      false_value: "N"
+      null_handling: "false"
+    rationale: >
+      Patient is in the analysis population if they are at least 18 AND
+      have a recorded response. Rows missing either are excluded (false).
+
+  - name: RISK_GROUP
+    inputs: [age, lab_value]
+    rule_kind: risk_score
+    rule_body:
+      tiers:
+        - label: high
+          combinator: and
+          conditions:
+            - { column: age,       op: ">=", value: 65 }
+            - { column: lab_value, op: ">=", value: 60 }
+        - label: medium
+          combinator: or
+          conditions:
+            - { column: lab_value, op: ">=", value: 60 }
+            - { column: age,       op: ">=", value: 65 }
+      fallback_label: low
+      null_handling: fallback
+    rationale: >
+      Tier ladder, first match wins. 'high' is the elderly-with-elevated-lab
+      group; 'medium' is either elderly OR elevated-lab; 'low' catches
+      everyone else. Order matters — a 70-year-old with lab_value=80 lands
+      in 'high', not 'medium'.

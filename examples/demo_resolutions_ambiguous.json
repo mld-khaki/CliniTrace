@@ -1,0 +1,80 @@
+[
+  {
+    "ticket_kind": "ambiguity",
+    "target": "AGE_GROUP",
+    "chosen_option": "add_pediatric_stratum",
+    "body_patch": {
+      "edges": [12, 18, 65],
+      "labels": ["pediatric", "minor", "adult", "senior"]
+    },
+    "free_text_rationale": "Clinical lead: split pediatric (<12) from older minors (12-17) so dose-response analysis can use the correct stratum. Aligns with ICH E11.",
+    "resolved_by": "demo-replay"
+  },
+  {
+    "ticket_kind": "ambiguity",
+    "target": "RESPONSE_FLAG",
+    "chosen_option": "flag_unknown_as_U",
+    "body_patch": {
+      "unmapped_handling": "value",
+      "unmapped_value": "U"
+    },
+    "free_text_rationale": "Clinical lead: surface 'unknown' as a third label for downstream review rather than silently null.",
+    "resolved_by": "demo-replay"
+  },
+  {
+    "ticket_kind": "ambiguity",
+    "target": "TREATMENT_DURATION",
+    "chosen_option": "keep_negative_for_review",
+    "body_patch": {},
+    "free_text_rationale": "Clinical lead: do NOT silently clamp to zero — the negative duration is itself the data-quality signal we need DM to investigate. Surface as-is; let downstream tables filter.",
+    "resolved_by": "demo-replay"
+  },
+  {
+    "ticket_kind": "ambiguity",
+    "target": "ANALYSIS_POP_FLAG",
+    "chosen_option": "add_min_exposure_condition",
+    "body_patch": {
+      "conditions": [
+        { "column": "age",                "op": ">=",       "value": 18 },
+        { "column": "response",           "op": "not_null"               },
+        { "column": "TREATMENT_DURATION", "op": ">=",       "value": 7  }
+      ]
+    },
+    "free_text_rationale": "Clinical lead: per the SAP, the analysis population requires at least 7 days of exposure. Add the missing condition.",
+    "resolved_by": "demo-replay"
+  },
+  {
+    "ticket_kind": "ambiguity",
+    "target": "RISK_GROUP",
+    "chosen_option": "add_critical_lab_tier",
+    "body_patch": {
+      "tiers": [
+        {
+          "label": "critical",
+          "combinator": "and",
+          "conditions": [
+            { "column": "lab_value", "op": ">", "value": 85 }
+          ]
+        },
+        {
+          "label": "high",
+          "combinator": "and",
+          "conditions": [
+            { "column": "age",       "op": ">=", "value": 65 },
+            { "column": "lab_value", "op": ">=", "value": 60 }
+          ]
+        },
+        {
+          "label": "medium",
+          "combinator": "or",
+          "conditions": [
+            { "column": "lab_value", "op": ">=", "value": 60 },
+            { "column": "age",       "op": ">=", "value": 65 }
+          ]
+        }
+      ]
+    },
+    "free_text_rationale": "Clinical lead: a young patient with lab>85 is a clinical emergency. Add a 'critical' top tier that fires on any age group.",
+    "resolved_by": "demo-replay"
+  }
+]

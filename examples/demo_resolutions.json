@@ -1,0 +1,13 @@
+[
+  {
+    "ticket_kind": "ambiguity",
+    "target": "RESPONSE_FLAG",
+    "chosen_option": "flag_unknown_as_U",
+    "body_patch": {
+      "unmapped_handling": "value",
+      "unmapped_value": "U"
+    },
+    "free_text_rationale": "Clinical lead: surface 'unknown' for downstream review rather than silently null. Aligns with safety reporting convention.",
+    "resolved_by": "demo-replay"
+  }
+]

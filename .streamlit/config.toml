@@ -1,0 +1,22 @@
+# Streamlit theme overrides for CliniTrace.
+#
+# Streamlit's default primary color is a punchy red (#ff4b4b) which reads as
+# "warning / error" in a clinical context. We use a calmer blue instead so
+# primary actions (Save, Start task, Next) don't visually scream at the user.
+#
+# Other named colors:
+#   - secondaryBackgroundColor: sidebar / form background tint
+#   - textColor:                main body text
+#   - backgroundColor:          page background
+
+[theme]
+primaryColor = "#313EF3"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F5F7FB"
+textColor = "#1F1F2A"
+font = "sans serif"
+
+[server]
+# Quieter dev-server output; no auto-open of the browser when launched from
+# the wizard subprocess (we prefer the user clicks the URL we print).
+headless = false

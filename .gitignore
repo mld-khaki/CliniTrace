@@ -1,0 +1,68 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+.pytest_cache/
+pytest-cache-files-*/
+.hypothesis/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Build artifacts
+build/
+dist/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+.directory
+desktop.ini
+.Spotlight-V100
+.Trashes
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+*.log.*
+logs/
+
+# Streamlit
+.streamlit/secrets.toml
+.streamlit/cache/
+.streamlit/*.json
+
+# Python version management
+.python-version
+
+# Run artifacts (will exist once the Orchestrator runs)
+runs/
+demo_out/
+live_out/
+ltm.db
+*.db
+*.parquet
+
+# Temporary files
+*.tmp
+*.temp
+*.swp

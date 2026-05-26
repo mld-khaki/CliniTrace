@@ -1,0 +1,144 @@
+version: "1"
+# DEMO SPEC — intentionally ambiguous.
+#
+# Every rule in this file has a deliberate gap between its `rationale` (what
+# the clinician says they want) and its `rule_body` (what the YAML literally
+# encodes). The Spec Reviewer (🤖 SR) is meant to flag these gaps; without a
+# warm LTM, the Code Generator (🤖 CG) must invoke the live LLM to invent a
+# normalised body that closes them.
+#
+# Pair this spec with one of the datasets under examples/demo_datasets/ to
+# exercise a specific gap.
+#
+# Run cold-LTM + live LLM to see the agentic loop fire end-to-end:
+#   CLINITRACE_LLM=live \
+#   uv run clinitrace run \
+#     --spec examples/demo_spec_ambiguous.yaml \
+#     --data examples/demo_datasets/unknown_response.csv \
+#     --out demo_out --no-ltm
+
+derivations:
+
+  # ── AGE_GROUP ───────────────────────────────────────────────────────────
+  # Gap: rationale calls out a *pediatric* stratum, but `edges` only carries
+  # the adult cutoff (18). On pediatric data the rule silently lumps a 5-y-o
+  # and a 17-y-o into the same "minor" bucket — invisible to V (the body is
+  # structurally valid) but visible to SR reading the rationale.
+  - name: AGE_GROUP
+    inputs: [age]
+    rule_kind: bin
+    rule_body:
+      edges: [18, 65]
+      labels: [minor, adult, senior]
+    rationale: >
+      Standard adult stratum binning. Patients under 12 are pediatric and
+      should be stratified separately from older minors (12–17), since dose
+      response and AE profile differ markedly.
+    ambiguity_notes: >
+      The rationale calls for a pediatric (<12) stratum, but the edges
+      collapse all patients under 18 into one "minor" bucket. Clinical lead
+      to confirm whether a separate pediatric label is required.
+
+  # ── RESPONSE_FLAG ───────────────────────────────────────────────────────
+  # Gap: rationale acknowledges that 'unknown' is a real value in the
+  # dataset, but the body declares no `unmapped_handling`. L2 will catch
+  # this (no implicit defaults), and SR should also surface it.
+  - name: RESPONSE_FLAG
+    inputs: [response]
+    rule_kind: flag
+    rule_body:
+      map:
+        responder: "Y"
+        non_responder: "N"
+    rationale: >
+      Map response to a binary flag for downstream tables. Responders are
+      Y, non-responders are N. The protocol uses 'unknown' for patients
+      who withdrew before assessment or whose assessment was inconclusive.
+    ambiguity_notes: >
+      The rationale mentions 'unknown' as a real protocol value but the
+      mapping does not declare what to emit for it. Clinical lead needs to
+      decide: propagate null, emit a third label ('U'), or exclude the
+      patient from downstream analysis.
+
+  # ── TREATMENT_DURATION ──────────────────────────────────────────────────
+  # Gap: rationale says negative durations should clamp to zero (data entry
+  # error), but the body doesn't encode that — it would emit a negative
+  # integer and let downstream code deal with it. CG should normalise.
+  - name: TREATMENT_DURATION
+    inputs: [treatment_start_date, visit_date]
+    rule_kind: duration
+    rule_body:
+      start_column: treatment_start_date
+      end_column: visit_date
+      unit: days
+      null_handling: "null"
+    rationale: >
+      Days from treatment start to the visit date. If visit_date is
+      recorded BEFORE treatment_start_date, that is a data-entry error
+      (we use a per-site EDC that occasionally flips the fields); the
+      derived duration should be clamped to zero rather than propagating
+      a negative number into the analysis tables.
+    ambiguity_notes: >
+      Rationale calls for clamp-to-zero on negative deltas, but the body
+      has no clamp/floor field. Clinical lead to confirm: emit zero,
+      emit null, or raise so the data-entry error gets surfaced.
+
+  # ── ANALYSIS_POP_FLAG ───────────────────────────────────────────────────
+  # Gap: rationale specifies a third inclusion criterion (≥7 days of
+  # treatment exposure) that the body does NOT encode — the body only
+  # checks adult age + recorded response. SR should flag.
+  - name: ANALYSIS_POP_FLAG
+    inputs: [age, response, TREATMENT_DURATION]
+    rule_kind: compound
+    rule_body:
+      conditions:
+        - { column: age,      op: ">=", value: 18 }
+        - { column: response, op: "not_null" }
+      combinator: and
+      true_value: "Y"
+      false_value: "N"
+      null_handling: "false"
+    rationale: >
+      Patient is in the analysis population if they are at least 18, have
+      a recorded response (not null), AND received at least 7 days of
+      treatment exposure. Per the SAP, very short-exposure subjects do
+      not count even if they have a recorded response.
+    ambiguity_notes: >
+      The rationale states "at least 7 days of treatment exposure" as a
+      third inclusion criterion, but the rule body only checks age and
+      response. Clinical lead to confirm whether TREATMENT_DURATION>=7
+      must be added as an explicit condition.
+
+  # ── RISK_GROUP ──────────────────────────────────────────────────────────
+  # Gap: rationale promises a "critical" tier for any lab_value > 85
+  # regardless of age. The body's top tier only fires for elderly AND
+  # elevated lab — a 30-year-old with lab=92 lands in "low", which would
+  # be a clinically significant miss.
+  - name: RISK_GROUP
+    inputs: [age, lab_value]
+    rule_kind: risk_score
+    rule_body:
+      tiers:
+        - label: high
+          combinator: and
+          conditions:
+            - { column: age,       op: ">=", value: 65 }
+            - { column: lab_value, op: ">=", value: 60 }
+        - label: medium
+          combinator: or
+          conditions:
+            - { column: lab_value, op: ">=", value: 60 }
+            - { column: age,       op: ">=", value: 65 }
+      fallback_label: low
+      null_handling: fallback
+    rationale: >
+      Tier ladder, first match wins. 'high' is the elderly-with-elevated-
+      lab group AND any patient with a *critical* lab value (>85)
+      regardless of age — a young patient with lab=90 is a clinical
+      emergency. 'medium' is either elderly OR elevated-lab; 'low'
+      catches everyone else.
+    ambiguity_notes: >
+      Rationale promises a "critical" override for lab_value > 85 in any
+      age group, but the body's top tier requires BOTH age>=65 AND
+      lab>=60. A 30-year-old with lab=90 would currently land in 'low'.
+      Clinical lead to confirm whether a separate top tier is required.
