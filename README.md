@@ -1,5 +1,8 @@
 # CliniTrace
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+
 > An agentic clinical-data transformation pipeline with HITL, DAG-based
 > derivation, and traceable lineage.
 
@@ -9,17 +12,8 @@ and a per-row audit trail. Six small agents do the work; a single
 Orchestrator schedules them; a Streamlit GUI lets a reviewer answer the
 questions the pipeline raises.
 
-This repo holds the source code. The canonical architecture spec, decision
-log, and design documents live one directory up:
-
-- `../clinitrace_architecture_proposal_003.md` -- canonical spec (current)
-- `../MIGRATION_NOTE.md` -- current state, locked decisions, mode per workstream
-- `../discussions.md` -- decision rationale (Rounds 1-3)
-- `../property_test_contracts.md` -- per-rule_kind L_p contracts
-- `../TUTORIAL.md` -- reviewer-facing tour (also rendered in-app under
-  Documentation > Tutorial)
-- `../GLOSSARY.md` -- term definitions (also in-app under
-  Documentation > Glossary)
+Reviewer-facing documentation (Glossary, Tutorial) is rendered in-app
+under the Documentation menu when the GUI is running.
 
 ## Quick Start
 
@@ -85,7 +79,8 @@ This project uses [uv](https://docs.astral.sh/uv/) for environment and
 dependency management.
 
 ```
-cd repo
+git clone https://github.com/mld-khaki/CliniTrace.git
+cd CliniTrace
 uv python install 3.11
 uv sync
 uv run pytest
@@ -103,7 +98,6 @@ top-level menu component).
 If `uv` is not available or fails on your filesystem, pip works fine:
 
 ```
-cd repo
 python -m pip install -e ".[gui]" pytest hypothesis pyyaml pyarrow
 python -m pytest
 ```
@@ -134,8 +128,7 @@ Run it a second time without `--replay`. The warm LTM auto-resolves SR's
 ambiguity and CG's rule lookup; zero HITL tickets open.
 
 For a reviewer-framed walkthrough of what to do once you have a run on
-disk, open the GUI (below) and read Documentation > Tutorial, or read
-`../TUTORIAL.md` directly.
+disk, open the GUI (below) and read Documentation > Tutorial.
 
 ## GUI (Streamlit)
 
@@ -170,24 +163,9 @@ different study.
 
 ## Screenshots
 
-Capture instructions for these are in `docs/screenshots/CAPTURE_NOTES.md`.
-Drop the PNGs in `docs/screenshots/` with the names below and the links
-below will resolve.
-
-![Top-level menu](docs/screenshots/menu.png)
-
-*Top-level menu with five pages. The active page is highlighted.*
-
-![Review questions page](docs/screenshots/review_questions.png)
-
-*The Review questions page with one open ambiguity ticket. The prompt,
-options, and free-text reasoning box are the locked HITL surface from
-proposal section 5.3.*
-
-![Documentation > Tutorial page](docs/screenshots/documentation_tutorial.png)
-
-*Documentation page with the Tutorial sub-menu selected, showing the
-concepts overview followed by the demo walkthrough.*
+Screenshots of the Streamlit GUI (top-level menu, Review questions page,
+Documentation tutorial page) will be added to `docs/screenshots/`. Capture
+instructions live in `docs/screenshots/CAPTURE_NOTES.md`.
 
 ## Live Ollama mode
 
@@ -215,7 +193,7 @@ always knows where each derivation came from.
 ## Layout
 
 ```
-repo/
+CliniTrace/
   pyproject.toml
   examples/
     demo_spec.yaml
@@ -244,16 +222,6 @@ repo/
     screenshots/                      # README screenshots (see CAPTURE_NOTES.md)
 ```
 
-## What lives where
-
-- Architecture spec, decision log, property contracts: parent directory.
-- Locked decisions: proposal `_003` (canonical), `discussions.md` Rounds 1-3.
-- Per-rule_kind property contracts that V exercises:
-  `property_test_contracts.md`.
-- Reviewer documentation: `../TUTORIAL.md`, `../GLOSSARY.md` (both also
-  rendered in-app under Documentation).
-- This README: how to install and run.
-
 ## Sanity check
 
 ```
@@ -275,6 +243,4 @@ Exit codes:
 
 ## License
 
-TBD. The take-home submission is shared with Sanofi for evaluation
-purposes; a permissive license (MIT or Apache-2.0) is the recommended
-choice if this repo is ever published more broadly.
+Released under the [MIT License](LICENSE). See `LICENSE` for the full text.
