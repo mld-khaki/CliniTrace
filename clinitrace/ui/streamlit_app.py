@@ -183,6 +183,41 @@ def _ticket_label(ticket_path: Path) -> str:
         return ticket_path.name.removesuffix(".ticket.json")
 
 
+@st.cache_data(ttl=5, show_spinner=False)
+def _count_pending_clarifications(out_dir_str: str, _mtime: float) -> int:
+    """Sum of open HITL tickets across all runs in ``out_dir``.
+
+    Used by the sidebar nav to render a "⚠️ N" badge on the IDC Rulebook
+    item so reviewers see pending work from any page. Cached with a
+    short TTL because the sidebar re-renders on every Streamlit tick;
+    without the cache, every keypress re-globs every run-*/hitl/inbox.
+
+    Args:
+        out_dir_str: path string (not Path — cache key must be hashable).
+        _mtime: mtime of out_dir for cache invalidation. Pass the parent
+            directory's mtime so the cache busts when a new run lands.
+
+    The leading underscore on ``_mtime`` is a convention nudge that the
+    arg is for cache-keying only; readers shouldn't trip over what looks
+    like a "time" parameter that isn't used inside the body.
+    """
+    del _mtime  # purely a cache-buster
+    out_dir = Path(out_dir_str)
+    return sum(len(_open_tickets(r)) for r in _scan_runs(out_dir))
+
+
+def _pending_count_for_sidebar(out_dir: Path) -> int:
+    """Caller-friendly wrapper: pulls the out_dir mtime so the cache
+    invalidates when a new run dir is added or a ticket file changes,
+    without forcing a full glob on every rerun.
+    """
+    try:
+        mtime = out_dir.stat().st_mtime if out_dir.exists() else 0.0
+    except OSError:
+        mtime = 0.0
+    return _count_pending_clarifications(str(out_dir), mtime)
+
+
 def _render_hitl_page(out_dir: Path) -> None:
     st.subheader("IDC Clarifications")
     st.markdown(
@@ -694,6 +729,63 @@ def _render_ltm_page(ltm_path: Path) -> None:
                                 st.code(str(body_raw))
     finally:
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Merged page: IDC Rulebook (Pending | Library)
+# ---------------------------------------------------------------------------
+#
+# Before the sidebar restructure we had two separate top-level pages:
+# "IDC Clarifications" (open HITL tickets) and "IDC Rulebook" (LTM
+# browser + Try-it sandbox). Reviewers found this confusing — both pages
+# read as "rules" content and the navigation didn't telegraph which to
+# open. Conceptually they're two phases of the same lifecycle:
+#
+#   Pending  (a rule needs a decision)  →  Library  (the decision lives
+#                                            in LTM and Try-it works)
+#
+# This wrapper presents them as sub-tabs of one sidebar item. The two
+# underlying render functions (_render_hitl_page, _render_ltm_page) are
+# unchanged — they just get composed.
+
+_RULEBOOK_TAB_PENDING = "❓ Pending"
+_RULEBOOK_TAB_LIBRARY = "📖 Library"
+
+
+def _render_idc_rulebook_page(out_dir: Path, ltm_path: Path) -> None:
+    """Two-tab merged view of HITL clarifications + LTM rulebook.
+
+    Args:
+        out_dir: where run-*/hitl/inbox/ ticket files live.
+        ltm_path: SQLite file holding rule_patterns / ambiguity_resolutions.
+    """
+    pending_count = _pending_count_for_sidebar(out_dir)
+    # Surface pending count INSIDE the merged page header too, not just
+    # in the sidebar badge — once the user is on the Rulebook page they
+    # shouldn't have to look at the sidebar to know there's open work.
+    if pending_count > 0:
+        pending_label = f"{_RULEBOOK_TAB_PENDING} ({pending_count})"
+    else:
+        pending_label = _RULEBOOK_TAB_PENDING
+
+    tab_options = [pending_label, _RULEBOOK_TAB_LIBRARY]
+    # Default to Pending when there are open tickets; otherwise default
+    # to Library so reviewers landing on the page during quiet times go
+    # straight to the reference content.
+    default_idx = 0 if pending_count > 0 else 1
+
+    sub_choice = option_menu(
+        menu_title=None,
+        options=tab_options,
+        icons=["question-circle", "journal-bookmark"],
+        default_index=default_idx,
+        orientation="horizontal",
+        key="rulebook_sub_menu",
+    )
+    if sub_choice.startswith("❓"):  # Pending — startswith handles the optional count
+        _render_hitl_page(out_dir)
+    else:
+        _render_ltm_page(ltm_path)
 
 
 # ---------------------------------------------------------------------------
@@ -1292,22 +1384,37 @@ def _render_reset_everything(saved: dict[str, object]) -> None:
 # ---------------------------------------------------------------------------
 
 
-_MENU_OPTIONS = [
-    "New Import\nTask",
-    "IDC\nClarifications",
-    "Import Task\nHistory",
-    "IDC\nRulebook",
-    "CliniTrace\nDocumentation",
-    "Settings",
+# Sidebar navigation — split into two groups separated by a divider.
+#
+# WORKFLOW group is the user's path through the app (do something with a
+# dataset). REFERENCE group is "look up info / configure". The split is
+# rendered as two separate option_menus inside st.sidebar with a divider
+# between them — option_menu doesn't natively support intra-list
+# dividers, so two menus is the cleanest mechanism.
+#
+# IDC Rulebook is the merged "Pending + Library" page (formerly two
+# top-level items: IDC Clarifications + IDC Rulebook). Its label may
+# carry a "⚠️ N" badge appended at render time — dispatch uses
+# startswith("IDC Rulebook") to handle the dynamic suffix.
+
+_WORKFLOW_OPTIONS = [
+    "Import new DB",      # was "New Import Task"
+    "IDC Rulebook",       # merged page (Pending + Library sub-tabs)
+    "Task History",       # was "Import Task History"
+]
+_WORKFLOW_ICONS = [
+    "rocket-takeoff",     # Import new DB
+    "journal-bookmark",   # IDC Rulebook
+    "clipboard-data",     # Task History
 ]
 
-_MENU_ICONS = [
-    "rocket-takeoff",
-    "question-circle",
-    "clipboard-data",
-    "journal-bookmark",
-    "book",
+_REFERENCE_OPTIONS = [
+    "Settings",
+    "Documentation",
+]
+_REFERENCE_ICONS = [
     "gear",
+    "book",
 ]
 
 
@@ -1379,70 +1486,18 @@ def main() -> None:
     # on this page render (Settings, audit trail, etc.).
     set_display_timezone(st.session_state.get("display_tz", "UTC"))
 
-    # The header row uses [1.2, 3] columns. The title/tagline cell is its
-    # own flex column; the menu cell is independent. We bottom-align the
-    # menu via CSS (see styles below) so the buttons sit at the same
-    # baseline as the tagline regardless of how many lines the tagline takes.
-    col1, col2 = st.columns([1.2, 3], vertical_alignment="bottom")
-    with col1:
-        st.title("CliniTrace")
-        st.markdown(
-            f'<div style="font-size: 0.75rem; color: #6b6b78; '
-            f'line-height: 1.3; margin-top: -0.5rem;">{APP_TAGLINE}</div>',
-            unsafe_allow_html=True,
-        )
-    with col2:
-        # Menu styling notes:
-        #   - white-space: pre-line lets embedded "\n" render as a real
-        #     line break inside an option label.
-        #   - flex + center on nav-link gives icon-above-text layout and
-        #     keeps single-line and two-line items visually the same height.
-        #   - min-height equalises all menu cells so the row looks balanced.
-        choice = option_menu(
-            menu_title=None,
-            options=_MENU_OPTIONS,
-            icons=_MENU_ICONS,
-            default_index=0,
-            orientation="horizontal",
-            key="top_menu",
-            styles={
-                "container": {
-                    "padding": "0",
-                    "background-color": "transparent",
-                },
-                "nav-link": {
-                    "white-space": "pre-line",
-                    "text-align": "center",
-                    "line-height": "1.15",
-                    "font-size": "14px",
-                    "display": "flex",
-                    "flex-direction": "column",
-                    "align-items": "center",
-                    "justify-content": "center",
-                    "min-height": "56px",
-                    "padding": "8px 12px",
-                    "margin": "0 2px",
-                },
-                "nav-link-selected": {
-                    "font-weight": "600",
-                },
-                "icon": {
-                    "margin-right": "0",
-                    "margin-bottom": "4px",
-                    "font-size": "18px",
-                },
-            },
-        )
+    # ---------------------------------------------------------------
+    # Page header (title + tagline, no top menu — nav lives in sidebar)
+    # ---------------------------------------------------------------
+    st.title("CliniTrace")
+    st.markdown(
+        f'<div style="font-size: 0.75rem; color: #6b6b78; '
+        f'line-height: 1.3; margin-top: -0.5rem;">{APP_TAGLINE}</div>',
+        unsafe_allow_html=True,
+    )
 
-    # Horizontal rule separating the header (title + tagline + menu) from the
-    # page body. Visually anchors the menu as part of the app chrome rather
-    # than as part of whatever page the user is on.
-    st.divider()
-
-    # Persistent cloud-demo banner. Renders on every page (just under the
-    # header) so users on share.streamlit.io always know the LLM is off.
-    # We use st.info (not st.warning) because this is informational, not a
-    # problem state — the app is operating exactly as configured.
+    # Persistent cloud-demo banner. Renders just under the header on every
+    # page so users on share.streamlit.io always know the LLM is off.
     if settings_store.is_cloud_demo():
         st.info(
             "☁️ **You're viewing the Cloud demo** — running in stub mode "
@@ -1452,52 +1507,145 @@ def main() -> None:
             "on each cold start."
         )
 
-    # Show a small jargon-busters panel at the top of every page.
-    with st.expander("📖 Jargon-busters (terms used in this app)", expanded=False):
-        st.caption(
-            "Hover any underlined term anywhere in the app for a definition. "
-            "🤖 = LLM-backed agent · ⚙️ = deterministic agent (no LLM call)."
-        )
-        st.markdown("**Agents** (the six modular components of the pipeline)")
-        agent_cols = st.columns(2)
-        for i, code in enumerate(["SR", "CG", "V", "R", "A", "O"]):
-            with agent_cols[i % 2]:
-                label = glossary.agent_label(code)
-                defn = glossary.define(code) or ""
-                st.markdown(f"- **{label}** — {defn}")
-
-        st.markdown("**Concepts and abbreviations**")
-        general_terms = [
-            "IDC", "HITL", "LTM", "STM", "DAG",
-            "derivation", "ambiguity", "lineage", "audit trail",
-            "stub mode", "live mode", "warm LTM", "cold LTM",
-            "Ollama", "LangChain", "LangGraph",
-        ]
-        gcols = st.columns(3)
-        for i, t in enumerate(general_terms):
-            with gcols[i % 3]:
-                defn = glossary.define(t)
-                if defn:
-                    st.markdown(f"**{t}** — {defn}")
-
-    # Second divider closes the jargon-busters band; everything below this
-    # belongs to the active page (subheader + body content).
     st.divider()
 
     out_dir, ltm_path = _current_paths()
 
-    if choice == "New Import\nTask":
-        new_run_wizard.render()
-    elif choice == "IDC\nClarifications":
-        _render_hitl_page(out_dir)
-    elif choice == "Import Task\nHistory":
-        _render_run_inspector(out_dir)
-    elif choice == "IDC\nRulebook":
-        _render_ltm_page(ltm_path)
-    elif choice == "CliniTrace\nDocumentation":
-        _render_documentation_page()
-    elif choice == "Settings":
-        _render_settings_page()
+    # ---------------------------------------------------------------
+    # Sidebar — two grouped nav menus + Glossary popover
+    # ---------------------------------------------------------------
+    #
+    # Layout (top-to-bottom):
+    #   WORKFLOW group:   Import new DB · IDC Rulebook (badge) · Task History
+    #   ─────── divider
+    #   REFERENCE group:  Settings · Documentation
+    #   ─────── small spacer
+    #   📖 Glossary  (popover button — opens floating panel, no nav)
+    #
+    # The "IDC Rulebook" label may carry a ⚠️ N suffix when there are
+    # open clarifications across any run; dispatch uses startswith so
+    # the dynamic suffix doesn't break routing.
+
+    # Compute the pending-count badge for the sidebar. _pending_count_
+    # for_sidebar is cached on out_dir's mtime so this is cheap even when
+    # the sidebar re-renders on every Streamlit tick.
+    pending_count = _pending_count_for_sidebar(out_dir)
+    rulebook_label = (
+        f"IDC Rulebook ⚠️ {pending_count}" if pending_count > 0 else "IDC Rulebook"
+    )
+    workflow_labels = [
+        _WORKFLOW_OPTIONS[0],   # Import new DB
+        rulebook_label,         # IDC Rulebook (with optional badge)
+        _WORKFLOW_OPTIONS[2],   # Task History
+    ]
+
+    # Shared option_menu styling for both sidebar menus — vertical-stacked,
+    # consistent visual weight, badge-friendly. Kept here (not in a
+    # module-level constant) because option_menu's `styles` dict is
+    # actually re-keyed by Streamlit on every render; sharing-by-reference
+    # has caused subtle widget-state bugs in past versions.
+    sidebar_menu_styles = {
+        "container": {
+            "padding": "4px 0",
+            "background-color": "transparent",
+        },
+        "nav-link": {
+            "text-align": "left",
+            "font-size": "14px",
+            "padding": "8px 12px",
+            "margin": "2px 0",
+            "border-radius": "6px",
+        },
+        "nav-link-selected": {
+            "font-weight": "600",
+            # Use the app's primary blue from .streamlit/config.toml so
+            # the selected state matches the rest of the app's accents.
+            "background-color": "#313EF3",
+            "color": "white",
+        },
+        "icon": {
+            "font-size": "16px",
+        },
+    }
+
+    with st.sidebar:
+        workflow_choice = option_menu(
+            menu_title=None,
+            options=workflow_labels,
+            icons=_WORKFLOW_ICONS,
+            default_index=0,
+            orientation="vertical",
+            key="sidebar_workflow_menu",
+            styles=sidebar_menu_styles,
+        )
+        st.divider()
+        reference_choice = option_menu(
+            menu_title=None,
+            options=_REFERENCE_OPTIONS,
+            icons=_REFERENCE_ICONS,
+            # default_index=-1 would make NO reference item highlighted by
+            # default. option_menu in this version doesn't accept -1 cleanly,
+            # so we default to 0 (Settings) but our dispatch below treats
+            # the workflow menu as PRIMARY — the reference selection is
+            # only consulted when the user actively clicks one.
+            default_index=0,
+            orientation="vertical",
+            key="sidebar_reference_menu",
+            styles=sidebar_menu_styles,
+        )
+
+        # Track which menu the user clicked most recently. option_menu
+        # always returns its current selection; without disambiguation
+        # we can't tell whether the user is on a workflow page or a
+        # reference page — both menus would always have something
+        # "selected". We use Streamlit's session state to record the
+        # last-clicked menu.
+        prev_workflow = st.session_state.get("_prev_workflow_choice")
+        prev_reference = st.session_state.get("_prev_reference_choice")
+        if prev_workflow is None:
+            # First render — default to the workflow menu.
+            active_menu = "workflow"
+        elif workflow_choice != prev_workflow:
+            active_menu = "workflow"
+        elif reference_choice != prev_reference:
+            active_menu = "reference"
+        else:
+            active_menu = st.session_state.get("_active_menu", "workflow")
+        st.session_state["_prev_workflow_choice"] = workflow_choice
+        st.session_state["_prev_reference_choice"] = reference_choice
+        st.session_state["_active_menu"] = active_menu
+
+        # Glossary popover — opens a floating panel anchored to the
+        # button, doesn't change route. Reviewers can keep their place on
+        # whatever page they're on and pop the glossary open for a
+        # quick definition.
+        st.markdown(
+            '<div style="margin-top: 1rem;"></div>',
+            unsafe_allow_html=True,
+        )
+        with st.popover("📖 Glossary", use_container_width=True):
+            st.caption(
+                "Quick term lookup. The full glossary lives under "
+                "**Documentation → Glossary** if you want the printable view."
+            )
+            st.markdown(GLOSSARY_HTML, unsafe_allow_html=True)
+
+    # ---------------------------------------------------------------
+    # Dispatch — drive page rendering from the active sidebar menu
+    # ---------------------------------------------------------------
+    if active_menu == "reference":
+        if reference_choice == "Settings":
+            _render_settings_page()
+        elif reference_choice == "Documentation":
+            _render_documentation_page()
+    else:
+        if workflow_choice == "Import new DB":
+            new_run_wizard.render()
+        elif workflow_choice.startswith("IDC Rulebook"):
+            # startswith handles the optional "⚠️ N" badge suffix.
+            _render_idc_rulebook_page(out_dir, ltm_path)
+        elif workflow_choice == "Task History":
+            _render_run_inspector(out_dir)
 
 
 main()
