@@ -68,6 +68,45 @@ def test_dataset_missing_source_column_fails_pre_dag(tmp_path: Path, monkeypatch
         ltm.close()
 
 
+def test_dataset_missing_body_referenced_column_fails_pre_dag(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("CLINITRACE_LLM", "stub")
+    spec = Spec(
+        derivations=[
+            SpecEntry(
+                name="TREATMENT_DURATION",
+                inputs=["treatment_start_date"],
+                rule_kind="duration",
+                rule_body={
+                    "start_column": "treatment_start_date",
+                    "end_column": "visit_date",
+                    "unit": "days",
+                },
+                rationale="days from treatment start to visit",
+            )
+        ]
+    )
+    dataset = pd.DataFrame({"treatment_start_date": ["2026-01-01"]})
+    out = tmp_path / "out"
+    out.mkdir()
+    ltm = LTM(tmp_path / "ltm.db")
+    try:
+        with pytest.raises(orch.DatasetValidationError) as exc:
+            orch.run(
+                spec=spec,
+                dataset=dataset,
+                out_dir=out,
+                ltm=ltm,
+                llm_mode="stub",
+                inbox_poll_interval=0.01,
+                inbox_poll_timeout=0.5,
+            )
+        assert "visit_date" in str(exc.value)
+    finally:
+        ltm.close()
+
+
 def test_dataset_check_logs_to_audit_trail(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("CLINITRACE_LLM", "stub")
     spec = Spec(
@@ -243,3 +282,74 @@ def test_downstream_skipped_when_upstream_unresolved(
     assert derivations["UPSTREAM"]["status"] == "unresolved"
     assert derivations["DOWNSTREAM"]["status"] == "skipped"
     assert "upstream" in derivations["DOWNSTREAM"]["reason"].lower()
+
+
+def test_body_referenced_derived_column_drives_dag_order(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Multi-source bodies participate in dependency planning even when the
+    human-facing inputs list omits the derived dependency."""
+    monkeypatch.setenv("CLINITRACE_LLM", "stub")
+    spec = Spec(
+        derivations=[
+            SpecEntry(
+                name="AA_DOWNSTREAM",
+                inputs=["age"],
+                rule_kind="compound",
+                rule_body={
+                    "conditions": [
+                        {"column": "ZZ_UPSTREAM", "op": "==", "value": "Y"}
+                    ],
+                    "true_value": "Y",
+                    "false_value": "N",
+                    "null_handling": "false",
+                },
+                rationale="depends on the upstream response flag",
+            ),
+            SpecEntry(
+                name="ZZ_UPSTREAM",
+                inputs=["response"],
+                rule_kind="flag",
+                rule_body={
+                    "map": {"responder": "Y", "non_responder": "N"},
+                    "unmapped_handling": "null",
+                },
+                rationale="response flag",
+            ),
+        ]
+    )
+    dataset = _trivial_dataset()
+    out = tmp_path / "out"
+    out.mkdir()
+    ltm = LTM(tmp_path / "ltm.db")
+    try:
+        result = orch.run(
+            spec=spec,
+            dataset=dataset,
+            out_dir=out,
+            ltm=ltm,
+            llm_mode="stub",
+            inbox_poll_interval=0.01,
+            inbox_poll_timeout=0.5,
+        )
+    finally:
+        ltm.close()
+
+    assert result.stm.execution_order == ["ZZ_UPSTREAM", "AA_DOWNSTREAM"]
+    assert result.counts["derivations_verified"] == 2
+
+
+def test_ambiguity_signature_changes_when_rule_body_changes() -> None:
+    base = SpecEntry(
+        name="RESPONSE_FLAG",
+        inputs=["response"],
+        rule_kind="flag",
+        rule_body={"map": {"responder": "Y", "non_responder": "N"}},
+        rationale="map response to a binary flag",
+        ambiguity_notes="unknown response value is not specified",
+    )
+    changed = base.model_copy(
+        update={"rule_body": {"map": {"responder": "1", "non_responder": "0"}}}
+    )
+
+    assert base.ambiguity_signature() != changed.ambiguity_signature()

@@ -36,9 +36,10 @@ keeps control flow inspectable and prevents hidden agent-to-agent side effects.
 ## 3. Orchestration and Dependencies
 
 Each derived variable declares its source inputs in the IDC. The Orchestrator
-classifies inputs as raw dataset columns or upstream derived variables, validates
-that raw sources exist, and builds a directed acyclic graph (DAG) over
-derivations.
+also asks the rule-kind registry for body-carried references such as
+`start_column`, `end_column`, and condition columns. It classifies the combined
+set as raw dataset columns or upstream derived variables, validates that raw
+sources exist, and builds a directed acyclic graph (DAG) over derivations.
 
 Execution proceeds in topological order. If the graph contains a cycle, the run
 fails before derivation. If a raw source column is missing, the run exits with a

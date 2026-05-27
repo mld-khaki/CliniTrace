@@ -35,7 +35,7 @@ uv run --extra dev pytest
 Current local checks:
 
 - Ruff: all checks passed.
-- Pytest: 144 passed on Python 3.11.
+- Pytest: 148 passed on Python 3.11.
 
 ## Notes for Reviewers
 

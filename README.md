@@ -66,8 +66,8 @@ Hero-flow MVP per the slice plan:
 - Local Ollama integration. The default is offline stubs so the demo runs
   from a clean clone without network. Set `CLINITRACE_LLM=live` to call a
   local Ollama server.
-- Streamlit GUI with a top-level menu: Review questions, Run review,
-  Across-run memory, Documentation (Glossary + Tutorial), Settings.
+- Streamlit GUI with a top-level menu: New Import Task, IDC Clarifications,
+  Import Task History, IDC Rulebook, CliniTrace Documentation, Settings.
 
 The derivation-approval and triage HITL paths are scaffolded but not
 exercised in the demo; ambiguity-resolution is the primary HITL path
@@ -141,19 +141,21 @@ repository root.
 
 The top of the page carries a horizontal menu with five entries:
 
-- **Review questions** -- lists open reviewer tickets under
+- **New Import Task** -- upload a dataset, preview columns, choose or generate
+  an IDC, run the pipeline, and inspect the immediate result.
+- **IDC Clarifications** -- lists open reviewer tickets under
   `<run_dir>/hitl/inbox/`, renders the selected one (prompt, context,
   options, free-text rationale, optional JSON body_patch), and writes the
   resolution into the outbox where the Orchestrator picks it up. This is
   the locked surface from proposal section 5.3.
-- **Run review** -- pick a past run; view the `run_summary.md`,
+- **Import Task History** -- pick a past run; view the `run_summary.md`,
   `verification_report.json` (as a table), the `audit_trail.jsonl`
   (filterable by event_type), the `analysis_ready.parquet` dataset, and
   per-row lineage records.
-- **Across-run memory** -- point at the SQLite file; browse
+- **IDC Rulebook** -- point at the SQLite file; browse
   `rule_patterns`, `ambiguity_resolutions`, and `feedback_events`. Click a
   rule_pattern row to see its full body JSON.
-- **Documentation** -- horizontal sub-menu with Glossary (term
+- **CliniTrace Documentation** -- horizontal sub-menu with Glossary (term
   definitions) and Tutorial (concepts plus a step-by-step walkthrough of
   the demo, in reviewer language).
 - **Settings** -- mirror of the sidebar's path inputs. Edit either; the
@@ -166,8 +168,8 @@ different study.
 
 ## Screenshots
 
-Screenshots of the Streamlit GUI (top-level menu, Review questions page,
-Documentation tutorial page) will be added to `docs/screenshots/`. Capture
+Screenshots of the Streamlit GUI (top-level menu, IDC Clarifications page,
+CliniTrace Documentation tutorial page) will be added to `docs/screenshots/`. Capture
 instructions live in `docs/screenshots/CAPTURE_NOTES.md`.
 
 ## Live Ollama mode
@@ -228,7 +230,7 @@ CliniTrace/
 ## Sanity check
 
 ```
-python -m pytest                    # 144 tests
+python -m pytest                    # 148 tests
 python -m clinitrace --version
 python -m clinitrace run --help
 ```

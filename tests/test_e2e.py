@@ -139,3 +139,28 @@ def test_second_run_hits_ltm(tmp_path: Path, monkeypatch) -> None:
     assert result.ltm_writes["rule_patterns"] == 0
     # CG hit LTM for all five derivations on the second run.
     assert result.counts["cg_ltm_hits"] == 5
+
+
+def test_no_ltm_reports_zero_ltm_writes(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CLINITRACE_LLM", "stub")
+
+    spec = load_spec(EXAMPLES / "demo_spec.yaml")
+    dataset = pd.read_csv(EXAMPLES / "demo_data.csv")
+
+    out = tmp_path / "out"
+    out.mkdir()
+
+    result = orch.run(
+        spec=spec,
+        dataset=dataset,
+        out_dir=out,
+        ltm=None,
+        llm_mode="stub",
+        replay_path=EXAMPLES / "demo_resolutions.json",
+        inbox_poll_interval=0.01,
+        inbox_poll_timeout=2.0,
+    )
+
+    assert result.counts["derivations_verified"] == 5
+    assert result.ltm_writes == {"rule_patterns": 0, "ambiguity_resolutions": 0}
+    assert not (tmp_path / "ltm.db").exists()

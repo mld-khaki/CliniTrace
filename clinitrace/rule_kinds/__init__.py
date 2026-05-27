@@ -28,8 +28,8 @@ Note on the apply() signature:
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import NamedTuple
+from collections.abc import Callable, Iterable
+from typing import Any, NamedTuple
 
 import pandas as pd
 from pydantic import BaseModel
@@ -46,14 +46,64 @@ class RuleKindEntry(NamedTuple):
 
     body_cls: type[BaseModel]
     apply: Callable[[pd.DataFrame, str, str, BaseModel], pd.DataFrame]
+    referenced_columns: Callable[[list[str], BaseModel | dict[str, Any]], list[str]]
+
+
+def _unique(values: Iterable[str]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if value and value not in seen:
+            out.append(value)
+            seen.add(value)
+    return out
+
+
+def _as_dict(body: BaseModel | dict[str, Any]) -> dict[str, Any]:
+    if isinstance(body, BaseModel):
+        return body.model_dump(mode="json")
+    return body
+
+
+def _single_source_columns(inputs: list[str], body: BaseModel | dict[str, Any]) -> list[str]:
+    return _unique(inputs)
+
+
+def _duration_columns(inputs: list[str], body: BaseModel | dict[str, Any]) -> list[str]:
+    raw = _as_dict(body)
+    return _unique([*inputs, raw.get("start_column"), raw.get("end_column")])
+
+
+def _compound_columns(inputs: list[str], body: BaseModel | dict[str, Any]) -> list[str]:
+    raw = _as_dict(body)
+    columns = list(inputs)
+    for cond in raw.get("conditions") or []:
+        if isinstance(cond, dict):
+            columns.append(cond.get("column"))
+        elif hasattr(cond, "column"):
+            columns.append(cond.column)
+    return _unique(columns)
+
+
+def _risk_score_columns(inputs: list[str], body: BaseModel | dict[str, Any]) -> list[str]:
+    raw = _as_dict(body)
+    columns = list(inputs)
+    for tier in raw.get("tiers") or []:
+        conditions = tier.get("conditions") if isinstance(tier, dict) else getattr(tier, "conditions", [])
+        for cond in conditions or []:
+            if isinstance(cond, dict):
+                columns.append(cond.get("column"))
+            elif hasattr(cond, "column"):
+                columns.append(cond.column)
+    return _unique(columns)
 
 
 REGISTRY: dict[str, RuleKindEntry] = {
-    "bin": RuleKindEntry(body_cls=BinBody, apply=apply_bin),  # type: ignore[arg-type]
-    "flag": RuleKindEntry(body_cls=FlagBody, apply=apply_flag),  # type: ignore[arg-type]
-    "duration": RuleKindEntry(body_cls=DurationBody, apply=apply_duration),  # type: ignore[arg-type]
-    "compound": RuleKindEntry(body_cls=CompoundBody, apply=apply_compound),  # type: ignore[arg-type]
-    "risk_score": RuleKindEntry(body_cls=RiskScoreBody, apply=apply_risk_score),  # type: ignore[arg-type]
+    "bin": RuleKindEntry(body_cls=BinBody, apply=apply_bin, referenced_columns=_single_source_columns),  # type: ignore[arg-type]
+    "flag": RuleKindEntry(body_cls=FlagBody, apply=apply_flag, referenced_columns=_single_source_columns),  # type: ignore[arg-type]
+    "duration": RuleKindEntry(body_cls=DurationBody, apply=apply_duration, referenced_columns=_duration_columns),  # type: ignore[arg-type]
+    "compound": RuleKindEntry(body_cls=CompoundBody, apply=apply_compound, referenced_columns=_compound_columns),  # type: ignore[arg-type]
+    "risk_score": RuleKindEntry(body_cls=RiskScoreBody, apply=apply_risk_score, referenced_columns=_risk_score_columns),  # type: ignore[arg-type]
 }
 
 

@@ -71,7 +71,7 @@ def _validate_dataset(spec: Spec, dataset: pd.DataFrame) -> None:
     columns = set(dataset.columns)
     missing: dict[str, list[str]] = {}
     for entry in spec.derivations:
-        for col in entry.inputs:
+        for col in _entry_referenced_columns(entry):
             if col in derived_names:
                 continue
             if col not in columns:
@@ -115,7 +115,7 @@ def _topological_sort(spec: Spec, source_columns: set[str]) -> list[str]:
     forward: dict[str, list[str]] = {d.name: [] for d in spec.derivations}
 
     for entry in spec.derivations:
-        for dep in entry.inputs:
+        for dep in _entry_referenced_columns(entry):
             if dep in source_columns:
                 continue
             if dep in derived_names:
@@ -142,6 +142,17 @@ def _topological_sort(spec: Spec, source_columns: set[str]) -> list[str]:
         unresolved = sorted(set(derived_names) - set(order))
         raise ValueError(f"spec contains a cycle involving: {unresolved!r}")
     return order
+
+
+def _entry_referenced_columns(entry: SpecEntry) -> list[str]:
+    """Return every source/derived column the rule reads.
+
+    `entry.inputs` remains the human-facing IDC declaration, but multi-source
+    rule kinds also carry column references inside their body. The
+    Orchestrator uses the registry hook so dataset validation, DAG planning,
+    verification samples, and downstream skip logic all see the same columns.
+    """
+    return get_rule_kind(entry.rule_kind).referenced_columns(entry.inputs, entry.rule_body)
 
 
 def run(
@@ -197,6 +208,7 @@ def run(
         "cg_ltm_hits": 0,
         "derivations_verified": 0,
         "derivations_unresolved": 0,
+        "derivations_skipped": 0,
         "refinement_iterations": 0,
     }
     ltm_writes = {"rule_patterns": 0, "ambiguity_resolutions": 0}
@@ -224,6 +236,13 @@ def run(
 
     source_cols = set(dataset.columns)
     try:
+        _validate_dataset(resolved_spec, dataset)
+    except DatasetValidationError as exc:
+        audit.log("dataset_check_failed", error=str(exc), stage="post_hitl")
+        log.error("post-HITL dataset validation failed: %s", exc)
+        raise
+
+    try:
         execution_order = _topological_sort(resolved_spec, source_cols)
     except ValueError as exc:
         audit.log("dag_plan_failed", error=str(exc))
@@ -249,6 +268,7 @@ def run(
         if _has_unresolved_input(entry, stm, source_cols):
             node.status = NodeStatus.SKIPPED
             counts["derivations_unresolved"] += 1
+            counts["derivations_skipped"] += 1
             verification_report["derivations"][name] = {
                 "status": "skipped",
                 "reason": "upstream input did not verify",
@@ -454,7 +474,8 @@ def _resolve_ambiguity(
             },
             event_id=resolution.event_id,
         )
-        ltm_writes["ambiguity_resolutions"] += 1
+        if ltm is not None:
+            ltm_writes["ambiguity_resolutions"] += 1
 
         name_to_patch[finding.entry_name] = resolution.body_patch
         record["chosen_option"] = resolution.chosen_option
@@ -552,7 +573,7 @@ def _execute_derivation(
     source = entry.inputs[0]
     # Slice the sample so multi-source rules see every column they reference.
     # bin/flag still get their one column; the extra columns are harmless.
-    sample_cols = [c for c in entry.inputs if c in df.columns]
+    sample_cols = [c for c in _entry_referenced_columns(entry) if c in df.columns]
     if not sample_cols:
         sample_cols = [source]
     agent_chain: list[str] = ["CG"]
@@ -595,7 +616,7 @@ def _execute_derivation(
             # Promote to LTM rule_patterns (validated rule). Skip the write
             # when this run already loaded the pattern from LTM, so the audit
             # trail reflects only genuinely-new patterns.
-            if not cg_out.ltm_hit and cg_out.body_signature:
+            if ltm is not None and not cg_out.ltm_hit and cg_out.body_signature:
                 audit.promote_rule_pattern(
                     rule_kind=entry.rule_kind,
                     body_signature=cg_out.body_signature,
@@ -705,7 +726,7 @@ def _has_unresolved_input(
     Per _002 section 4.4: a derivation whose upstream input is unresolved is
     skipped, not silently defaulted.
     """
-    for dep in entry.inputs:
+    for dep in _entry_referenced_columns(entry):
         if dep in source_cols:
             continue
         upstream = stm.nodes.get(dep)

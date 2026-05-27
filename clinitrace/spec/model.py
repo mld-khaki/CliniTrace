@@ -84,19 +84,24 @@ class SpecEntry(BaseModel):
         return v
 
     def ambiguity_signature(self) -> str:
-        """Canonical hash of (name, rationale, ambiguity_notes).
+        """Canonical hash of the ambiguity context.
 
-        Used as the LTM key for ambiguity_resolutions. A new run with the same
-        name + rationale + ambiguity_notes hits the prior resolution.
+        Used as the LTM key for ambiguity_resolutions. The body, inputs, and
+        rule kind are included so a wording-identical note on a materially
+        different rule does not auto-apply an old human decision.
         """
         canonical = json.dumps(
             {
+                "inputs": self.inputs,
                 "name": self.name,
+                "rule_body": self.rule_body,
+                "rule_kind": self.rule_kind,
                 "rationale": self.rationale,
                 "ambiguity_notes": self.ambiguity_notes or "",
             },
             sort_keys=True,
             separators=(",", ":"),
+            default=str,
         )
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
 
