@@ -30,6 +30,7 @@ file is the cloud-only entry point).
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -40,6 +41,50 @@ _REPO_ROOT = Path(__file__).resolve().parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from clinitrace.ui.streamlit_app import main  # noqa: E402 — after path setup
+
+def _bridge_secrets_to_env() -> None:
+    """Copy Streamlit Cloud secrets into os.environ.
+
+    Why this exists:
+      Streamlit Cloud's auto-exposure of TOML secrets as environment
+      variables is version-dependent — some builds set them as env vars
+      automatically, others only make them available via ``st.secrets``.
+      CliniTrace's dispatcher and settings_store read API keys / config
+      from ``os.environ`` (so the same code path works locally and on
+      cloud). This shim copies any top-level string secret into env at
+      startup, idempotently and best-effort.
+
+    Failure modes (all silent on purpose — secrets are optional):
+      - ``streamlit`` not importable yet      → skip
+      - ``st.secrets`` not defined (local dev) → skip
+      - secrets file missing                   → skip
+      - non-string secret values               → skip (env vars are str)
+
+    Existing env vars take precedence: if you already have
+    ``CLINITRACE_OPENAI_KEY`` exported in your shell, the secret in the
+    TOML file does NOT clobber it.
+    """
+    try:
+        import streamlit as st  # noqa: PLC0415
+    except ImportError:
+        return
+    try:
+        # Touching st.secrets raises StreamlitSecretNotFoundError when no
+        # secrets file is configured (typical local-dev case). Catch
+        # broadly — any failure means "no secrets to bridge."
+        secrets = dict(st.secrets)
+    except Exception:  # noqa: BLE001
+        return
+    for key, value in secrets.items():
+        # Only copy STRINGS into env. Nested tables / lists in TOML stay
+        # accessible via st.secrets and don't fit into env vars anyway.
+        if isinstance(value, str) and key not in os.environ:
+            os.environ[key] = value
+
+
+_bridge_secrets_to_env()
+
+
+from clinitrace.ui.streamlit_app import main  # noqa: E402 — after path + secrets setup
 
 main()
