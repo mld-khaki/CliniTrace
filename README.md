@@ -66,8 +66,9 @@ Hero-flow MVP per the slice plan:
 - Local Ollama integration. The default is offline stubs so the demo runs
   from a clean clone without network. Set `CLINITRACE_LLM=live` to call a
   local Ollama server.
-- Streamlit GUI with a top-level menu: New Import Task, IDC Clarifications,
-  Import Task History, IDC Rulebook, CliniTrace Documentation, Settings.
+- Streamlit GUI with sidebar workflow navigation: Import new DB, IDC Rulebook
+  (Pending + Library), Task History, Settings, Documentation, and a Glossary
+  popover.
 
 The derivation-approval and triage HITL paths are scaffolded but not
 exercised in the demo; ambiguity-resolution is the primary HITL path
@@ -114,7 +115,7 @@ This:
 2. Runs SR over both derivations. AGE_GROUP is clean; RESPONSE_FLAG is
    flagged ambiguous (its rationale mentions `unknown` but the body has no
    handling for it).
-3. Opens an ambiguity ticket in `demo_out/_hitl_staging/hitl/inbox/`. The
+3. Opens an ambiguity ticket in `demo_out/<run_id>/hitl/inbox/`. The
    `--replay` flag short-circuits the wait by reading the pre-recorded
    resolution from `examples/demo_resolutions.json`.
 4. Merges the resolution's `body_patch` into the entry (adds
@@ -139,27 +140,24 @@ python -m clinitrace ui
 For direct Streamlit launch, use `streamlit run streamlit_app.py` from the
 repository root.
 
-The top of the page carries a horizontal menu with five entries:
+The sidebar is split into workflow and reference groups:
 
-- **New Import Task** -- upload a dataset, preview columns, choose or generate
+- **Import new DB** -- upload a dataset, preview columns, choose or generate
   an IDC, run the pipeline, and inspect the immediate result.
-- **IDC Clarifications** -- lists open reviewer tickets under
-  `<run_dir>/hitl/inbox/`, renders the selected one (prompt, context,
-  options, free-text rationale, optional JSON body_patch), and writes the
-  resolution into the outbox where the Orchestrator picks it up. This is
-  the locked surface from proposal section 5.3.
-- **Import Task History** -- pick a past run; view the `run_summary.md`,
+- **IDC Rulebook** -- combines **Pending** clarification tickets with the
+  **Library** of validated rule patterns and reviewer decisions. Pending
+  tickets live under `<run_dir>/hitl/inbox/`; resolutions are written to the
+  matching outbox where the Orchestrator picks them up.
+- **Task History** -- pick a past run; view the `run_summary.md`,
   `verification_report.json` (as a table), the `audit_trail.jsonl`
   (filterable by event_type), the `analysis_ready.parquet` dataset, and
   per-row lineage records.
-- **IDC Rulebook** -- point at the SQLite file; browse
-  `rule_patterns`, `ambiguity_resolutions`, and `feedback_events`. Click a
-  rule_pattern row to see its full body JSON.
-- **CliniTrace Documentation** -- horizontal sub-menu with Glossary (term
+- **Settings** -- edit paths, display timezone, and LLM backend settings.
+- **Documentation** -- horizontal sub-menu with Glossary (term
   definitions) and Tutorial (concepts plus a step-by-step walkthrough of
   the demo, in reviewer language).
-- **Settings** -- mirror of the sidebar's path inputs. Edit either; the
-  other updates automatically.
+- **Glossary** -- sidebar popover for quick definitions without leaving the
+  current page.
 
 The sidebar holds the same Runs folder and Memory file inputs (defaults:
 `demo_out` and `demo_ltm.db`, both resolved relative to where you launched
@@ -168,8 +166,8 @@ different study.
 
 ## Screenshots
 
-Screenshots of the Streamlit GUI (top-level menu, IDC Clarifications page,
-CliniTrace Documentation tutorial page) will be added to `docs/screenshots/`. Capture
+Screenshots of the Streamlit GUI (sidebar navigation, IDC Rulebook Pending tab,
+Documentation tutorial page) will be added to `docs/screenshots/`. Capture
 instructions live in `docs/screenshots/CAPTURE_NOTES.md`.
 
 ## Live Ollama mode

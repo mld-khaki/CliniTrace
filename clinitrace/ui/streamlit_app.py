@@ -1,25 +1,17 @@
 """CliniTrace Streamlit GUI.
 
-Top-level horizontal menu (Round 4) with five pages:
+Sidebar navigation is split into two groups:
 
-  1. Review questions  -- lists open reviewer tickets in <run_dir>/hitl/inbox,
-     renders one at a time with options + free-text, writes the decision to
-     the outbox so the Orchestrator's polling loop picks it up.
-  2. Run review        -- pick a past run; view the run summary, checks
-     performed, activity log, output dataset, and per-row lineage.
-  3. Across-run memory -- browse what CliniTrace remembers from past runs:
-     rules previously seen, prior reviewer decisions, activity log.
-  4. Documentation     -- sub-menu: Glossary / Tutorial.
-  5. Settings          -- duplicate path inputs that mirror the sidebar.
+  1. Workflow: Import new DB, IDC Rulebook, Task History.
+  2. Reference: Settings, Documentation.
 
+IDC Rulebook merges pending HITL clarification tickets with the long-term
+memory rule library. A glossary popover is always available in the sidebar.
 All reviewer-facing strings flow through clinitrace.presentation so the UI,
 the run_summary, and the audit trail use the same vocabulary.
 
-The HITL ticket-resolution surface (locked in proposal section 5.3) is
-unchanged; only the navigation chrome around it changes in this revision.
-
 Run with:
-    streamlit run clinitrace/ui/streamlit_app.py
+    python -m clinitrace ui
 """
 
 from __future__ import annotations
@@ -148,7 +140,7 @@ def _current_paths() -> tuple[Path, Path]:
 
 
 # ---------------------------------------------------------------------------
-# Page 1: Review questions
+# Page 1: IDC Rulebook Pending
 # ---------------------------------------------------------------------------
 
 
@@ -207,9 +199,10 @@ def _count_pending_clarifications(out_dir_str: str, _mtime: float) -> int:
 
 
 def _pending_count_for_sidebar(out_dir: Path) -> int:
-    """Caller-friendly wrapper: pulls the out_dir mtime so the cache
-    invalidates when a new run dir is added or a ticket file changes,
-    without forcing a full glob on every rerun.
+    """Caller-friendly wrapper: pulls out_dir mtime for cheap invalidation.
+
+    Nested ticket-file changes do not always update the parent out_dir mtime,
+    so the short TTL in _count_pending_clarifications is the freshness backstop.
     """
     try:
         mtime = out_dir.stat().st_mtime if out_dir.exists() else 0.0
@@ -405,7 +398,7 @@ def _render_hitl_page(out_dir: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Page 2: Run review
+# Page 2: Task History
 # ---------------------------------------------------------------------------
 
 
@@ -568,7 +561,7 @@ def _render_run_inspector(out_dir: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Page 3: Across-run memory
+# Page 3: IDC Rulebook Library
 # ---------------------------------------------------------------------------
 
 
@@ -1579,27 +1572,20 @@ def main() -> None:
             styles=sidebar_menu_styles,
         )
         st.divider()
+        reference_options = ["Settings", "Documentation", "Back to workflow"]
         reference_choice = option_menu(
             menu_title=None,
-            options=_REFERENCE_OPTIONS,
-            icons=_REFERENCE_ICONS,
-            # default_index=-1 would make NO reference item highlighted by
-            # default. option_menu in this version doesn't accept -1 cleanly,
-            # so we default to 0 (Settings) but our dispatch below treats
-            # the workflow menu as PRIMARY — the reference selection is
-            # only consulted when the user actively clicks one.
-            default_index=0,
+            options=reference_options,
+            icons=["gear", "book", "arrow-left-circle"],
+            default_index=2,
             orientation="vertical",
             key="sidebar_reference_menu",
             styles=sidebar_menu_styles,
         )
 
-        # Track which menu the user clicked most recently. option_menu
-        # always returns its current selection; without disambiguation
-        # we can't tell whether the user is on a workflow page or a
-        # reference page — both menus would always have something
-        # "selected". We use Streamlit's session state to record the
-        # last-clicked menu.
+        # Track which menu the user clicked most recently. The reference
+        # menu defaults to a neutral item, so Settings/Documentation always
+        # produce a value change even on the first interaction.
         prev_workflow = st.session_state.get("_prev_workflow_choice")
         prev_reference = st.session_state.get("_prev_reference_choice")
         if prev_workflow is None:
@@ -1607,8 +1593,10 @@ def main() -> None:
             active_menu = "workflow"
         elif workflow_choice != prev_workflow:
             active_menu = "workflow"
-        elif reference_choice != prev_reference:
+        elif reference_choice != prev_reference and reference_choice != "Back to workflow":
             active_menu = "reference"
+        elif reference_choice == "Back to workflow":
+            active_menu = "workflow"
         else:
             active_menu = st.session_state.get("_active_menu", "workflow")
         st.session_state["_prev_workflow_choice"] = workflow_choice

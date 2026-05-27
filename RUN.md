@@ -145,7 +145,7 @@ This is exactly the agentic memory loop the design doc describes.
 
 1. Settings > **Reset everything** > tick **LTM database** > confirm.
 2. Settings > enable LLM (Local Ollama), save.
-3. **New Import Task** > upload `unknown_response.csv` > pick the
+3. **Import new DB** > upload `unknown_response.csv` > pick the
    `demo_spec_ambiguous.yaml`.
 4. **IDC Clarifications** lists each gap; resolve them one by one.
 5. Re-run the same task; LTM hits resolve the ambiguities automatically

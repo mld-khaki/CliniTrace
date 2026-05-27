@@ -20,7 +20,7 @@ this folder, and the links resolve.
 
 2. Launch the GUI:
 
-       streamlit run src/clinitrace/ui/streamlit_app.py
+       python -m clinitrace ui
 
 3. In the sidebar, confirm Runs folder is `demo_out` and Memory file is
    `demo_ltm.db`.
@@ -30,17 +30,17 @@ this folder, and the links resolve.
 Use a browser window roughly 1440 wide. PNG format. Crop or shrink for
 the README; the originals can live full-size here.
 
-- `menu.png` -- the top-level horizontal menu visible, with "Review
-  questions" selected. Capture from the top of the page through the
-  first reviewer prompt so the menu and the locked HITL surface are
-  both in frame.
+- `menu.png` -- the sidebar navigation visible, with **IDC Rulebook**
+  selected and the **Pending** tab open. Capture from the top of the page
+  through the first reviewer prompt so the navigation and the locked HITL
+  surface are both in frame.
 
-- `review_questions.png` -- the Review questions page mid-decision:
+- `review_questions.png` -- the IDC Rulebook Pending tab mid-decision:
   ticket prompt expanded, an option selected, the free-text reasoning
   box populated. Show that the action is a single Save your decision
   button below.
 
-- `documentation_tutorial.png` -- click Documentation in the top menu,
+- `documentation_tutorial.png` -- click Documentation in the sidebar,
   then Tutorial in the sub-menu. Capture the heading "How CliniTrace
   works" and at least the first three bullets of the agent roster.
 
