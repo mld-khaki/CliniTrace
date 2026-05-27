@@ -705,23 +705,32 @@ def _render_ltm_page(ltm_path: Path) -> None:
 
 
 def _render_documentation_page() -> None:
+    # Lazy import for `about` so the (somewhat large) ABOUT_HTML string
+    # only loads when this page is opened, not on every Streamlit rerun.
+    # Matches the pattern presentation.py uses for its lazy assets.
+    from clinitrace.ui import about as about_page  # noqa: PLC0415
+
     st.subheader("Documentation")
     st.caption(
         "Reference material that travels with the app. Pick Glossary for "
-        "term definitions, or Tutorial for a guided tour of the demo."
+        "term definitions, Tutorial for a guided tour, or About for "
+        "project background and author / source links."
     )
     sub_choice = option_menu(
         menu_title=None,
-        options=["Glossary", "Tutorial"],
-        icons=["book-half", "compass"],
+        options=["Glossary", "Tutorial", "About"],
+        # bootstrap icons; info-circle is the standard 'about' affordance.
+        icons=["book-half", "compass", "info-circle"],
         default_index=0,
         orientation="horizontal",
         key="doc_sub_menu",
     )
     if sub_choice == "Glossary":
         st.markdown(GLOSSARY_HTML, unsafe_allow_html=True)
-    else:
+    elif sub_choice == "Tutorial":
         st.markdown(TUTORIAL_HTML, unsafe_allow_html=True)
+    else:
+        st.markdown(about_page.ABOUT_HTML, unsafe_allow_html=True)
 
 
 # ---------------------------------------------------------------------------
