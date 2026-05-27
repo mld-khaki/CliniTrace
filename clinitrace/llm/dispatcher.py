@@ -1,8 +1,17 @@
-"""Dispatch SR + CG calls to stub or live (Ollama) backend.
+"""Dispatch SR / CG / triage / spec-augmentation calls to a stub or one
+of the registered live backends (Ollama, OpenAI).
 
-Returns rich-shaped dataclasses so agents do not have to handle two response
-shapes. Falls back from live to stub semantics only on transport errors and
-logs the fallback for the audit trail; never silently masks an LLM disagreement.
+Returns rich-shaped dataclasses so agents do not have to handle two
+response shapes. Falls back from live to stub semantics only on
+transport errors and logs the fallback for the audit trail; never
+silently masks an LLM disagreement.
+
+Backend selection:
+  ``CLINITRACE_LLM_BACKEND`` env var picks the live backend when
+  ``CLINITRACE_LLM=live``. Recognised values: ``ollama`` (default),
+  ``openai``. Unrecognised values fall back to ollama (with a warning
+  log) — preserving the existing behaviour for callers that haven't
+  updated their config.
 """
 
 from __future__ import annotations
@@ -15,6 +24,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict
 
 from clinitrace.llm import client as ollama
+from clinitrace.llm import openai_client
 from clinitrace.llm.stubs import (
     cg_normalize_stub,
     spec_augmentation_stub,
@@ -29,6 +39,47 @@ def current_mode() -> str:
     """Return 'live' or 'stub'."""
     mode = os.environ.get("CLINITRACE_LLM", "stub").lower()
     return "live" if mode == "live" else "stub"
+
+
+def current_backend() -> str:
+    """Return the name of the currently-selected live backend.
+
+    Looks at ``CLINITRACE_LLM_BACKEND`` env var; defaults to ``ollama``.
+    Only meaningful when ``current_mode() == "live"`` — in stub mode
+    the backend choice has no effect (stub paths are deterministic and
+    backend-independent).
+    """
+    name = os.environ.get("CLINITRACE_LLM_BACKEND", "ollama").lower()
+    if name in ("ollama", "openai"):
+        return name
+    log.warning("unknown CLINITRACE_LLM_BACKEND=%r, falling back to 'ollama'", name)
+    return "ollama"
+
+
+def _backend_module():
+    """Return the client module for the currently-selected backend.
+
+    Used by the live-call helpers below so they can write
+    ``_backend_module().chat_json(...)`` without caring which backend.
+    """
+    if current_backend() == "openai":
+        return openai_client
+    return ollama
+
+
+# Exception classes the live-call sites catch. Both backend client modules
+# raise their own subclass of RuntimeError; catching both means a fallback
+# fires regardless of which backend was active.
+_BackendError = (ollama.OllamaError, openai_client.OpenAIError)
+
+
+def backend_label() -> str:
+    """Reviewer-friendly name of the active backend ('Ollama' or 'OpenAI').
+
+    Used by the LLM indicator's running-label so the user sees which
+    backend is being contacted.
+    """
+    return "OpenAI" if current_backend() == "openai" else "Ollama"
 
 
 class SrAmbiguityFinding(BaseModel):
@@ -90,17 +141,19 @@ def _live_sr(spec_entry: dict[str, Any]) -> dict[str, Any] | None:
         "Inspect for ambiguity per the system instructions."
     )
     target = spec_entry.get("name", "<unknown>")
-    log.info("SR -> Ollama [%s] target=%s", ollama.model_name(), target)
+    backend = _backend_module()
+    log.info(
+        "SR -> %s [%s] target=%s",
+        backend_label(), backend.model_name(), target,
+    )
     started = time.monotonic()
     try:
-        response = ollama.chat_json(_SR_SYSTEM, user)
-    except ollama.OllamaError as exc:
+        response = backend.chat_json(_SR_SYSTEM, user)
+    except _BackendError as exc:
         elapsed = time.monotonic() - started
         log.warning(
-            "SR Ollama call FAILED in %.1fs -> falling back to stub (target=%s, reason=%s)",
-            elapsed,
-            target,
-            exc,
+            "SR %s call FAILED in %.1fs -> falling back to stub (target=%s, reason=%s)",
+            backend_label(), elapsed, target, exc,
         )
         finding = sr_ambiguity_stub(spec_entry)
         if finding is None:
@@ -128,7 +181,7 @@ def call_sr_ambiguity(spec_entry: dict[str, Any]) -> SrAmbiguityFinding | None:
     mode = current_mode()
     if mode == "live":
         finding = _live_sr(spec_entry)
-        model = ollama.model_name()
+        model = _backend_module().model_name()
     else:
         finding = sr_ambiguity_stub(spec_entry)
         model = None
@@ -173,30 +226,26 @@ def _live_cg(spec_entry: dict[str, Any], body_cls: type[BaseModel]) -> dict[str,
         "Normalize into the schema."
     )
     target = spec_entry.get("name", "<unknown>")
+    backend = _backend_module()
     log.info(
-        "CG -> Ollama [%s] target=%s rule_kind=%s",
-        ollama.model_name(),
-        target,
+        "CG -> %s [%s] target=%s rule_kind=%s",
+        backend_label(), backend.model_name(), target,
         spec_entry.get("rule_kind"),
     )
     started = time.monotonic()
     try:
-        response = ollama.chat_json(_CG_SYSTEM, user)
-    except ollama.OllamaError as exc:
+        response = backend.chat_json(_CG_SYSTEM, user)
+    except _BackendError as exc:
         elapsed = time.monotonic() - started
         log.warning(
-            "CG Ollama call FAILED in %.1fs -> falling back to stub (target=%s, reason=%s)",
-            elapsed,
-            target,
-            exc,
+            "CG %s call FAILED in %.1fs -> falling back to stub (target=%s, reason=%s)",
+            backend_label(), elapsed, target, exc,
         )
         return cg_normalize_stub(spec_entry, body_cls)
     elapsed = time.monotonic() - started
     log.info(
-        "CG <- Ollama in %.1fs target=%s outcome=%s",
-        elapsed,
-        target,
-        response.get("outcome"),
+        "CG <- %s in %.1fs target=%s outcome=%s",
+        backend_label(), elapsed, target, response.get("outcome"),
     )
     return response
 
@@ -233,19 +282,24 @@ def _live_triage(unknown: str, entry: dict[str, Any]) -> dict[str, Any] | None:
         f"Spec entry:\n{entry!r}\n"
         "Which registered rule_kind best matches the author's intent?"
     )
-    log.info("Triage -> Ollama [%s] unknown=%r", ollama.model_name(), unknown)
+    backend = _backend_module()
+    log.info(
+        "Triage -> %s [%s] unknown=%r",
+        backend_label(), backend.model_name(), unknown,
+    )
     started = time.monotonic()
     try:
-        response = ollama.chat_json(_TRIAGE_SYSTEM, user)
-    except ollama.OllamaError as exc:
+        response = backend.chat_json(_TRIAGE_SYSTEM, user)
+    except _BackendError as exc:
         log.warning(
-            "Triage Ollama call FAILED in %.1fs -> falling back to stub (reason=%s)",
-            time.monotonic() - started, exc,
+            "Triage %s call FAILED in %.1fs -> falling back to stub (reason=%s)",
+            backend_label(), time.monotonic() - started, exc,
         )
         return triage_rule_kind_stub(unknown, entry)
     elapsed = time.monotonic() - started
     log.info(
-        "Triage <- Ollama in %.1fs kind=%s", elapsed, response.get("kind"),
+        "Triage <- %s in %.1fs kind=%s",
+        backend_label(), elapsed, response.get("kind"),
     )
     return response
 
@@ -330,7 +384,7 @@ No prose outside JSON. Empty list is fine."""
 def _live_spec_augmentation(
     profile_summary: dict[str, Any], existing: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
-    """Live Ollama call. Returns the list of proposal dicts the model
+    """Live backend call. Returns the list of proposal dicts the model
     suggests, or [] on any failure (fail-open — the deterministic baseline
     is always available)."""
     user = (
@@ -341,20 +395,22 @@ def _live_spec_augmentation(
         "Suggest any clinically useful derivations the deterministic "
         "patterns missed. Empty list is fine."
     )
-    log.info("SpecAugment -> Ollama [%s]", ollama.model_name())
+    backend = _backend_module()
+    log.info("SpecAugment -> %s [%s]", backend_label(), backend.model_name())
     started = time.monotonic()
     try:
-        response = ollama.chat_json(_AUGMENT_SYSTEM, user)
-    except ollama.OllamaError as exc:
+        response = backend.chat_json(_AUGMENT_SYSTEM, user)
+    except _BackendError as exc:
         log.warning(
-            "SpecAugment Ollama call FAILED in %.1fs -> returning [] (reason=%s)",
-            time.monotonic() - started, exc,
+            "SpecAugment %s call FAILED in %.1fs -> returning [] (reason=%s)",
+            backend_label(), time.monotonic() - started, exc,
         )
         return []
     elapsed = time.monotonic() - started
     proposals = response.get("proposals") or []
     log.info(
-        "SpecAugment <- Ollama in %.1fs proposals=%d", elapsed, len(proposals),
+        "SpecAugment <- %s in %.1fs proposals=%d",
+        backend_label(), elapsed, len(proposals),
     )
     return proposals if isinstance(proposals, list) else []
 

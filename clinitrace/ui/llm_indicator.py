@@ -148,27 +148,58 @@ def llm_call(
         return
 
     # Branch 3: live LLM. The running label is the user's main signal,
-    # so we pack it with concrete info: model name + server endpoint +
-    # position counter. That answers "what's being contacted?" without
-    # the user having to expand the box.
+    # so we pack it with concrete info: backend identity + model name +
+    # endpoint (Ollama only) + position counter. That answers
+    # "what's being contacted?" without the user having to expand the box.
+    #
+    # We import dispatcher lazily so this UI module doesn't pull the LLM
+    # client stack at module load — keeps the test suite light for
+    # non-UI test cases.
     try:
-        model_name = ollama.model_name()
+        from clinitrace.llm import dispatcher  # noqa: PLC0415
+        backend_name = dispatcher.backend_label()  # "Ollama" or "OpenAI"
+        backend_module = dispatcher._backend_module()
+        model_name = backend_module.model_name()
     except Exception:  # noqa: BLE001
+        backend_name = "LLM"
+        backend_module = None
         model_name = "(unknown model)"
-    try:
-        # _config() returns (url, model, timeout); cheap to call, re-reads
-        # env on every invocation so Settings changes apply.
-        server_url, _, timeout_s = ollama._config()
-    except Exception:  # noqa: BLE001
-        server_url = "(unknown URL)"
-        timeout_s = None
 
-    # Compact endpoint for the label (strip protocol so the line stays short).
-    short_endpoint = server_url.replace("http://", "").replace("https://", "")
+    # Endpoint is meaningful for Ollama (localhost:11434 etc.) but
+    # constant for OpenAI (api.openai.com). For the running label we
+    # show backend + model; for the expanded body we add endpoint/timeout
+    # details specific to the active backend.
+    server_url: str | None = None
+    timeout_s: float | None = None
+    if backend_module is ollama:
+        try:
+            url, _, t = ollama._config()
+            server_url = url
+            timeout_s = t
+        except Exception:  # noqa: BLE001
+            pass
+    else:
+        # OpenAI client: it also has _config(), with a (key, model, timeout, base_url)
+        # shape — but we never log the key. Pull only the non-secret bits.
+        try:
+            from clinitrace.llm import openai_client  # noqa: PLC0415
+            _, _, t, base = openai_client._config()
+            server_url = base or "api.openai.com"
+            timeout_s = t
+        except Exception:  # noqa: BLE001
+            server_url = "api.openai.com"
+
+    short_endpoint = (server_url or "").replace("http://", "").replace("https://", "")
     position_str = f" — call {position[0]} / {position[1]}" if position else ""
 
+    # Format: `🤖 OpenAI: gpt-5-mini — call 1 / 1 — LLM augmentation…`
+    # or:     `🤖 Ollama: gpt-oss:20b @ localhost:11434 — call 1 / 1 — …`
+    if backend_module is ollama and short_endpoint:
+        endpoint_in_label = f" @ `{short_endpoint}`"
+    else:
+        endpoint_in_label = ""
     running_label = (
-        f"🤖 Communicating with `{model_name}` @ `{short_endpoint}`"
+        f"🤖 {backend_name}: `{model_name}`{endpoint_in_label}"
         f"{position_str} — {label}…"
     )
 
@@ -177,8 +208,10 @@ def llm_call(
         state="running",
         expanded=expanded,
     ) as status:
+        status.write(f"**Backend**: {backend_name}")
         status.write(f"**Model**: `{model_name}`")
-        status.write(f"**Server**: `{server_url}`")
+        if server_url:
+            status.write(f"**Server**: `{server_url}`")
         if timeout_s is not None:
             status.write(f"**Timeout**: `{float(timeout_s):.0f}s`")
         if position is not None:
@@ -193,8 +226,8 @@ def llm_call(
             elapsed = time.monotonic() - ctrl.started
             status.update(
                 label=(
-                    f"⚠️ LLM error after {elapsed:.1f}s on `{model_name}` "
-                    f"@ `{short_endpoint}`{position_str} — {exc}"
+                    f"⚠️ {backend_name} error after {elapsed:.1f}s "
+                    f"on `{model_name}`{endpoint_in_label}{position_str} — {exc}"
                 ),
                 state="error",
             )
@@ -205,7 +238,7 @@ def llm_call(
         speed_tag = "fast" if elapsed < 2 else ("normal" if elapsed < 10 else "slow")
         status.update(
             label=(
-                f"🤖 LLM response ← `{model_name}` @ `{short_endpoint}`"
+                f"🤖 {backend_name} ← `{model_name}`{endpoint_in_label}"
                 f"{position_str} — {label} ({elapsed:.1f}s, {speed_tag})"
             ),
             state="complete",

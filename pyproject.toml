@@ -23,6 +23,11 @@ dependencies = [
     # start and risks version drift from what uv.lock pins.
     "streamlit>=1.36",
     "streamlit-option-menu>=0.3.6",
+    # OpenAI is an optional LLM backend alongside Ollama. The client is
+    # lazy-imported (clinitrace/llm/openai_client.py) so users who only
+    # use Ollama pay no import cost. Kept as a main dep so `uv sync`
+    # installs it without needing an extras flag on Streamlit Cloud.
+    "openai>=1.0",
 ]
 
 [project.optional-dependencies]

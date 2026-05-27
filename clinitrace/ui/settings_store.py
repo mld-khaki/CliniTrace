@@ -27,15 +27,31 @@ from typing import Any
 CONFIG_FILE_NAME = ".clinitrace_settings.json"
 
 
+# Canonical labels for the LLM backend selector. Used by both this
+# module and the Settings UI; kept in sync so a value saved on disk
+# matches a radio option exactly.
+BACKEND_OLLAMA = "Local (Ollama)"
+BACKEND_OPENAI = "OpenAI API"
+BACKEND_OPTIONS = (BACKEND_OLLAMA, BACKEND_OPENAI)
+
+
 DEFAULTS: dict[str, Any] = {
     "display_tz": "UTC",
     "out_dir": "demo_out",
     "ltm_path": "demo_ltm.db",
     "llm_enabled": False,
-    "llm_backend": "Local (Ollama)",
+    # Backend selector: "Local (Ollama)" or "OpenAI API".
+    "llm_backend": BACKEND_OLLAMA,
+    # Ollama-specific (used when llm_backend == BACKEND_OLLAMA).
     "llm_url": "http://localhost:11434",
     "llm_model": "gpt-oss:20b",
     "llm_timeout": 120.0,
+    # OpenAI-specific (used when llm_backend == BACKEND_OPENAI). The API
+    # key itself is read from CLINITRACE_OPENAI_KEY (env-only by design)
+    # and is NEVER persisted to .clinitrace_settings.json — that's why
+    # there's no "openai_api_key" entry here.
+    "openai_model": "gpt-5-mini",
+    "openai_timeout": 60.0,
 }
 
 
@@ -236,14 +252,70 @@ def hard_reset(
 def apply_to_environment(values: dict[str, Any]) -> None:
     """Push LLM-related settings into env vars so the dispatcher sees them.
 
+    All Ollama-specific AND all OpenAI-specific env vars are written
+    every call — the dispatcher's backend selector (CLINITRACE_LLM_BACKEND)
+    decides which set is actually consulted. Writing both keeps Settings
+    page edits to the "non-active" backend persistent across mode flips.
+
+    Notably absent: CLINITRACE_OPENAI_KEY. The API key is env-only by
+    design (never persisted to .clinitrace_settings.json), so this
+    function doesn't manage it — set it in your shell rc, or on
+    Streamlit Cloud via Settings -> Secrets.
+
     Display-only settings (timezone, paths used by the UI) are NOT pushed
     here -- the caller wires those into session_state and presentation
     explicitly.
     """
     os.environ["CLINITRACE_LLM"] = "live" if values.get("llm_enabled") else "stub"
+
+    # Backend selector. The dispatcher reads this to pick which client
+    # module handles chat_json. Default "ollama" preserves existing
+    # behavior for callers that don't touch the new selector.
+    backend_label = values.get("llm_backend", BACKEND_OLLAMA)
+    backend_env = "openai" if backend_label == BACKEND_OPENAI else "ollama"
+    os.environ["CLINITRACE_LLM_BACKEND"] = backend_env
+
+    # Ollama-specific env vars.
     if values.get("llm_url"):
         os.environ["CLINITRACE_OLLAMA_URL"] = str(values["llm_url"])
     if values.get("llm_model"):
         os.environ["CLINITRACE_OLLAMA_MODEL"] = str(values["llm_model"])
     if values.get("llm_timeout") is not None:
         os.environ["CLINITRACE_OLLAMA_TIMEOUT"] = str(values["llm_timeout"])
+
+    # OpenAI-specific env vars (model + timeout only; key is env-only).
+    if values.get("openai_model"):
+        os.environ["CLINITRACE_OPENAI_MODEL"] = str(values["openai_model"])
+    if values.get("openai_timeout") is not None:
+        os.environ["CLINITRACE_OPENAI_TIMEOUT"] = str(values["openai_timeout"])
+
+
+def openai_api_key_present() -> bool:
+    """True iff CLINITRACE_OPENAI_KEY is set to a non-empty value.
+
+    Settings UI uses this to render a 'key detected' badge without ever
+    displaying the key itself. Cloud-demo unlock logic uses it to decide
+    whether to permit the LLM toggle on share.streamlit.io.
+    """
+    return bool(os.environ.get("CLINITRACE_OPENAI_KEY", "").strip())
+
+
+def any_live_backend_available() -> bool:
+    """True when at least one live backend has the necessary credentials.
+
+    - Ollama needs a reachable URL; on the cloud demo it almost certainly
+      doesn't have one (no localhost), so we treat Ollama as "available
+      only when not on cloud". Locally, Ollama is always treated as
+      available (the user is expected to run `ollama serve` if they want
+      live mode).
+    - OpenAI needs CLINITRACE_OPENAI_KEY in env.
+
+    Used by the Settings UI to gate the LLM-enable toggle on the cloud
+    demo: if NO backend has credentials, the toggle stays locked.
+    """
+    if openai_api_key_present():
+        return True
+    if not is_cloud_demo():
+        # Local dev: assume the user can spin up Ollama if they want to.
+        return True
+    return False

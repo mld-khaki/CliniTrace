@@ -864,18 +864,23 @@ def _render_settings_page() -> None:
         "generation."
     )
 
+    # Cloud-demo gating. On share.streamlit.io we lock the LLM toggle
+    # OFF unless a backend has credentials available. Currently the only
+    # cloud-reachable backend is OpenAI (Ollama needs localhost). If the
+    # OpenAI key is present in env (set via Streamlit Cloud Secrets), we
+    # unlock the toggle.
     cloud_demo = settings_store.is_cloud_demo()
-    if cloud_demo:
-        # On Streamlit Cloud the user's local Ollama is not reachable, so
-        # enabling live mode would just silently fail back to stub. We
-        # disable the toggle and explain why — better than letting them
-        # toggle it on and watch the LLM never actually fire.
+    openai_key_present = settings_store.openai_api_key_present()
+    cloud_can_use_llm = openai_key_present  # extend with `or anthropic_key_present` etc.
+
+    if cloud_demo and not cloud_can_use_llm:
         st.info(
-            "☁️ **Cloud demo mode** — the LLM toggle is locked off. Live "
-            "LLM mode requires a reachable Ollama (or other backend) "
-            "URL; share.streamlit.io has no access to your local "
-            "machine. To try live LLM, run CliniTrace locally with "
-            "`python -m clinitrace ui`."
+            "☁️ **Cloud demo mode** — the LLM toggle is locked off because "
+            "no live-LLM credentials are available on this deployment. "
+            "Either add `CLINITRACE_OPENAI_KEY` under **Settings → Secrets** "
+            "in Streamlit Cloud (app owner only), or run CliniTrace locally "
+            "with `python -m clinitrace ui` and an Ollama server on your "
+            "machine."
         )
         st.toggle(
             "Enable LLM",
@@ -887,6 +892,12 @@ def _render_settings_page() -> None:
         _set_pending("llm_enabled", False)
         new_llm_enabled = False
     else:
+        if cloud_demo and cloud_can_use_llm:
+            st.success(
+                "☁️ **Cloud demo + OpenAI key detected** — live LLM mode is "
+                "available. The cloud build cannot reach a local Ollama, so "
+                "the backend selector below will default to OpenAI."
+            )
         new_llm_enabled = st.toggle(
             "Enable LLM",
             value=_get_pending("llm_enabled", saved),
@@ -900,10 +911,19 @@ def _render_settings_page() -> None:
         )
         _set_pending("llm_enabled", new_llm_enabled)
 
-    backend_options = ["Local (Ollama)", "LangChain (planned)", "LangGraph (planned)"]
+    # ─── Backend selector ────────────────────────────────────────────────
+    # Two real backends: Local (Ollama) and OpenAI API. The labels live in
+    # settings_store.BACKEND_OPTIONS so this widget and apply_to_environment
+    # agree on the canonical strings.
+    backend_options = list(settings_store.BACKEND_OPTIONS)
     current_backend = _get_pending("llm_backend", saved)
     if current_backend not in backend_options:
-        current_backend = "Local (Ollama)"
+        current_backend = settings_store.BACKEND_OLLAMA
+    # On cloud-with-OpenAI-key, default to OpenAI since Ollama can't reach
+    # anything from there. Doesn't override an explicit user choice — only
+    # adjusts the initial index for fresh sessions.
+    if cloud_demo and cloud_can_use_llm and current_backend == settings_store.BACKEND_OLLAMA:
+        current_backend = settings_store.BACKEND_OPENAI
     new_backend = st.radio(
         "Backend",
         options=backend_options,
@@ -912,19 +932,16 @@ def _render_settings_page() -> None:
         key="llm_backend_radio",
         disabled=not new_llm_enabled,
         help=(
-            "Local (Ollama): direct HTTP calls to a local Ollama server. "
-            "Zero external dependencies beyond the model weights.\n\n"
-            "LangChain / LangGraph: framework integrations are planned."
+            "Local (Ollama): direct HTTP to a local Ollama server. Best for "
+            "private data / no API costs.\n\n"
+            "OpenAI API: hosted models via the official openai SDK. "
+            "Requires CLINITRACE_OPENAI_KEY in the environment."
         ),
     )
     _set_pending("llm_backend", new_backend)
-    if new_backend != "Local (Ollama)":
-        st.warning(
-            f"**{new_backend}** is not yet implemented. Falling back to "
-            "Local (Ollama) if you start a live run."
-        )
 
-    if new_llm_enabled and new_backend == "Local (Ollama)":
+    # ─── Backend-specific fields ─────────────────────────────────────────
+    if new_llm_enabled and new_backend == settings_store.BACKEND_OLLAMA:
         cols = st.columns([2, 1])
         with cols[0]:
             new_url = st.text_input(
@@ -986,6 +1003,65 @@ def _render_settings_page() -> None:
                     )
             except Exception as exc:  # noqa: BLE001
                 st.error(f"❌ Could not reach Ollama: {exc}")
+
+    elif new_llm_enabled and new_backend == settings_store.BACKEND_OPENAI:
+        # OpenAI-specific fields. The API KEY is intentionally NOT a form
+        # field — that would invite users to paste secrets into a textbox
+        # that could be logged or screenshotted. The key is env-only;
+        # we just display whether it's currently set.
+        cols = st.columns([2, 1])
+        with cols[0]:
+            # Common OpenAI models. Users can override by typing a custom
+            # value (the text_input is the fallback if their model isn't
+            # in the list).
+            openai_model_options = [
+                "gpt-5-mini",
+                "gpt-5",
+                "gpt-5-nano",
+                "o4-mini",
+                "gpt-4.1",
+                "gpt-4.1-mini",
+            ]
+            current_openai_model = _get_pending("openai_model", saved)
+            if current_openai_model not in openai_model_options:
+                openai_model_options.insert(0, current_openai_model)
+            new_openai_model = st.selectbox(
+                "OpenAI model",
+                options=openai_model_options,
+                index=openai_model_options.index(current_openai_model),
+                key="openai_model_select",
+                help=(
+                    "Model name to send to the OpenAI API. Smaller models "
+                    "(gpt-5-mini, gpt-5-nano, o4-mini) are cheaper; larger "
+                    "models give richer ambiguity flags."
+                ),
+            )
+            _set_pending("openai_model", new_openai_model)
+
+            # API key STATUS badge — never the value itself.
+            if openai_key_present:
+                st.success(
+                    "✅ **API key detected** — `CLINITRACE_OPENAI_KEY` is "
+                    "set in the environment."
+                )
+            else:
+                st.error(
+                    "❌ **API key not set.** OpenAI calls will fail until "
+                    "you export `CLINITRACE_OPENAI_KEY` locally (or add "
+                    "it to Streamlit Cloud Secrets)."
+                )
+        with cols[1]:
+            new_openai_timeout = st.number_input(
+                "Timeout (s)",
+                min_value=5.0,
+                max_value=300.0,
+                value=float(_get_pending("openai_timeout", saved)),
+                step=5.0,
+                key="openai_timeout_input",
+                help="Per-call timeout. OpenAI's typical p99 latency is <30s.",
+            )
+            _set_pending("openai_timeout", new_openai_timeout)
+
     elif not new_llm_enabled:
         st.info(
             "LLM is **disabled** (stub mode). Runs use deterministic "
