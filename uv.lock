@@ -194,6 +194,8 @@ dependencies = [
     { name = "pyarrow" },
     { name = "pydantic" },
     { name = "pyyaml" },
+    { name = "streamlit" },
+    { name = "streamlit-option-menu" },
 ]
 
 [package.optional-dependencies]
@@ -202,10 +204,6 @@ dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
-]
-gui = [
-    { name = "streamlit" },
-    { name = "streamlit-option-menu" },
 ]
 
 [package.metadata]
@@ -218,10 +216,10 @@ requires-dist = [
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5" },
     { name = "pyyaml", specifier = ">=6" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.5" },
-    { name = "streamlit", marker = "extra == 'gui'", specifier = ">=1.36" },
-    { name = "streamlit-option-menu", marker = "extra == 'gui'", specifier = ">=0.3.6" },
+    { name = "streamlit", specifier = ">=1.36" },
+    { name = "streamlit-option-menu", specifier = ">=0.3.6" },
 ]
-provides-extras = ["gui", "dev"]
+provides-extras = ["dev"]
 
 [[package]]
 name = "colorama"

@@ -17,6 +17,19 @@ textColor = "#1F1F2A"
 font = "sans serif"
 
 [server]
-# Quieter dev-server output; no auto-open of the browser when launched from
-# the wizard subprocess (we prefer the user clicks the URL we print).
-headless = false
+# `headless = true` skips the interactive first-run email prompt
+# ("Welcome to Streamlit!"), which is blocking on a server with no
+# stdin — Streamlit Cloud's health check times out waiting for the
+# prompt to clear if this is left at `false`.
+#
+# It also keeps Streamlit from auto-opening a browser tab when launched
+# from a subprocess locally (the wizard at `python -m clinitrace ui`
+# prints the URL and lets the user click it).
+headless = true
+
+[browser]
+# Disable Streamlit's anonymous-usage telemetry. The default is true,
+# which (a) sends pings to streamlit.io that may not be appropriate
+# for a clinical-data demo and (b) factors into the first-run prompt
+# behaviour above.
+gatherUsageStats = false
