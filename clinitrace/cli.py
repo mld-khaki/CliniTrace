@@ -167,10 +167,10 @@ def _launch_ui(args: argparse.Namespace, log: logging.Logger) -> int:
     try:
         result = subprocess.run(cmd, check=False)
         return result.returncode
-    except FileNotFoundError:
+    except FileNotFoundError as exc:
         raise SystemExit(
             "streamlit not found. Install with: pip install streamlit streamlit-option-menu"
-        )
+        ) from exc
 
 
 def main(argv: list[str] | None = None) -> int:

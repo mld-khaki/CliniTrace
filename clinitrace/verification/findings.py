@@ -7,13 +7,13 @@ them grouped by derivation.
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class Layer(str, Enum):
+class Layer(StrEnum):
     """Which V layer produced a finding."""
 
     L1 = "L1"
@@ -21,7 +21,7 @@ class Layer(str, Enum):
     L_P = "L_p"
 
 
-class Severity(str, Enum):
+class Severity(StrEnum):
     """Severity of a finding. Any non-INFO finding fails the verdict."""
 
     INFO = "info"

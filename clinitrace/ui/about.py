@@ -79,10 +79,7 @@ def _avatar_data_url() -> str | None:
         return None
     # Detect format from magic bytes so we set the right MIME type. PNG
     # starts with \x89PNG, JPEG with \xff\xd8\xff. Default to jpeg.
-    if raw.startswith(b"\x89PNG"):
-        mime = "image/png"
-    else:
-        mime = "image/jpeg"
+    mime = "image/png" if raw.startswith(b"\x89PNG") else "image/jpeg"
     encoded = base64.b64encode(raw).decode("ascii")
     return f"data:{mime};base64,{encoded}"
 

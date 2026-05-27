@@ -37,10 +37,7 @@ class RefinementOutput:
 
 
 def body_hash(body: BaseModel | dict[str, Any]) -> str:
-    if isinstance(body, BaseModel):
-        payload = body.model_dump(mode="json")
-    else:
-        payload = body
+    payload = body.model_dump(mode="json") if isinstance(body, BaseModel) else body
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
 

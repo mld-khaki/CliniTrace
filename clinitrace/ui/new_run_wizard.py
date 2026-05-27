@@ -19,7 +19,6 @@ import sqlite3
 import tempfile
 import traceback
 from pathlib import Path
-from typing import Any
 
 import pandas as pd
 import streamlit as st
@@ -33,7 +32,6 @@ from clinitrace.presentation import humanize_timestamp
 from clinitrace.spec import load_spec
 from clinitrace.spec.model import Spec
 from clinitrace.ui import glossary, llm_indicator, task_meta
-
 
 _ISO_TS_RE = re.compile(
     r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})"
@@ -732,9 +730,8 @@ def _render_auto_suggest_panel() -> Spec | None:
             mime="text/yaml",
             help="Save the generated IDC so you can hand-edit it later.",
         )
-    with nav_b:
-        with st.expander("Show generated IDC YAML", expanded=False):
-            st.code(yaml_text, language="yaml")
+    with nav_b, st.expander("Show generated IDC YAML", expanded=False):
+        st.code(yaml_text, language="yaml")
 
     st.session_state["wizard_spec_bytes"] = yaml_text.encode("utf-8")
     st.session_state["wizard_spec_name"] = "generated_idc.yaml"

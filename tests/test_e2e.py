@@ -15,7 +15,6 @@ from clinitrace.agents import orchestrator as orch
 from clinitrace.memory import LTM
 from clinitrace.spec import load_spec
 
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 EXAMPLES = REPO_ROOT / "examples"
 
@@ -77,10 +76,7 @@ def test_demo_runs_end_to_end(tmp_path: Path, monkeypatch) -> None:
 
     # Output dataset has the derived columns and a lineage_id column.
     out_path = result.output_dataset_path
-    if out_path.suffix == ".parquet":
-        out_df = pd.read_parquet(out_path)
-    else:
-        out_df = pd.read_csv(out_path)
+    out_df = pd.read_parquet(out_path) if out_path.suffix == ".parquet" else pd.read_csv(out_path)
     assert {"AGE_GROUP", "RESPONSE_FLAG", "TREATMENT_DURATION", "ANALYSIS_POP_FLAG", "RISK_GROUP", "lineage_id"}.issubset(out_df.columns)
     # 'unknown' rows should have been flagged 'U' per the replay resolution.
     mask = dataset["response"] == "unknown"

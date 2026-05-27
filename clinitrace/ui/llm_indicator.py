@@ -39,8 +39,8 @@ from contextlib import contextmanager
 
 import streamlit as st
 
-from clinitrace.llm import current_mode
 from clinitrace.llm import client as ollama
+from clinitrace.llm import current_mode
 
 
 @contextmanager
@@ -51,7 +51,7 @@ def llm_call(
     expanded: bool = True,
     deterministic: bool = False,
     position: tuple[int, int] | None = None,
-) -> Iterator["LLMCallController"]:
+) -> Iterator[LLMCallController]:
     """Show a lifecycle box around a blocking step.
 
     Args:
@@ -263,7 +263,7 @@ class LLMCallController:
 
     def __init__(
         self,
-        status: "st.delta_generator.StatusContainer",
+        status: st.delta_generator.StatusContainer,
         *,
         mode: str,
         started: float,

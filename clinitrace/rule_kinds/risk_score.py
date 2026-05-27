@@ -32,7 +32,7 @@ Why body-carried column refs: see duration.py module docstring.
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field
@@ -47,7 +47,7 @@ from clinitrace.rule_kinds.compound import (
 from clinitrace.rule_kinds.errors import NullInputError
 
 
-class RiskNullHandling(str, Enum):
+class RiskNullHandling(StrEnum):
     """How the rule treats rows where every tier evaluates undefined."""
 
     NULL = "null"
@@ -85,7 +85,7 @@ class RiskScoreBody(BaseModel):
     def model_post_init(self, _ctx: object) -> None:  # type: ignore[override]
         labels = [t.label for t in self.tiers]
         if len(set(labels)) != len(labels):
-            dupes = sorted({l for l in labels if labels.count(l) > 1})
+            dupes = sorted({label for label in labels if labels.count(label) > 1})
             raise ValueError(f"tier labels must be unique; duplicates: {dupes!r}")
 
 

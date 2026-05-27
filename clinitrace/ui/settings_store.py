@@ -79,9 +79,7 @@ def is_cloud_demo() -> bool:
         return True
     if os.environ.get("IS_RUNNING_IN_STREAMLIT_CLOUD"):
         return True
-    if Path("/mount/src").exists():
-        return True
-    return False
+    return bool(Path("/mount/src").exists())
 
 
 def config_path() -> Path:
@@ -315,7 +313,5 @@ def any_live_backend_available() -> bool:
     """
     if openai_api_key_present():
         return True
-    if not is_cloud_demo():
-        # Local dev: assume the user can spin up Ollama if they want to.
-        return True
-    return False
+    # Local dev: assume the user can spin up Ollama if they want to.
+    return not is_cloud_demo()

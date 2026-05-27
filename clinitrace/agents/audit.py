@@ -13,7 +13,7 @@ A does not decide anything: it just records what the Orchestrator tells it.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +23,7 @@ from clinitrace.memory.ltm import LTM
 
 
 def _utcnow() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class Audit:

@@ -8,7 +8,6 @@ from pydantic import ValidationError
 
 from clinitrace.rule_kinds.bin import BinBody, BinNullHandling
 
-
 # ---------------------------------------------------------------------------
 # Positive cases
 # ---------------------------------------------------------------------------

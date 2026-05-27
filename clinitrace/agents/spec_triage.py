@@ -41,7 +41,6 @@ Why it does NOT auto-patch the spec:
 from __future__ import annotations
 
 import logging
-import os
 from difflib import SequenceMatcher
 from typing import Any
 

@@ -24,7 +24,7 @@ apply_bin. The L_p property suite arrives in slice 3.
 from __future__ import annotations
 
 import math
-from enum import Enum
+from enum import StrEnum
 
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -32,7 +32,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from clinitrace.rule_kinds.errors import NullInputError
 
 
-class BinNullHandling(str, Enum):
+class BinNullHandling(StrEnum):
     """How apply_bin should treat null inputs."""
 
     NULL = "null"

@@ -32,7 +32,7 @@ Why body-carried column refs: see duration.py module docstring.
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 import pandas as pd
@@ -41,7 +41,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from clinitrace.rule_kinds.errors import NullInputError
 
 
-class CompoundOp(str, Enum):
+class CompoundOp(StrEnum):
     """Supported per-condition comparison operators."""
 
     EQ = "=="
@@ -55,14 +55,14 @@ class CompoundOp(str, Enum):
     IN = "in"                # value is a list
 
 
-class CompoundCombinator(str, Enum):
+class CompoundCombinator(StrEnum):
     """How condition results are combined into the final row truth."""
 
     AND = "and"
     OR = "or"
 
 
-class CompoundNullHandling(str, Enum):
+class CompoundNullHandling(StrEnum):
     """How the rule treats rows where the combined truth value is undefined.
 
     'null'  : emit NaN (the rule has no opinion).
@@ -173,10 +173,7 @@ def _evaluate_condition(series: pd.Series, op: CompoundOp, value: Any) -> pd.Ser
     else:
         col = series
         cmp = value
-    if op == CompoundOp.EQ:
-        r = col == cmp
-    else:
-        r = col != cmp
+    r = col == cmp if op == CompoundOp.EQ else col != cmp
     return r.where(~is_null, other=pd.NA).astype("boolean")
 
 

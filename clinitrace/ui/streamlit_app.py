@@ -25,6 +25,11 @@ Run with:
 from __future__ import annotations
 
 import json
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+import re as _re
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -34,7 +39,6 @@ import streamlit as st
 from streamlit_option_menu import option_menu
 
 from clinitrace.hitl import Resolution, Ticket
-from clinitrace.ui import glossary, new_run_wizard, rule_preview, settings_store, task_meta
 from clinitrace.presentation import (
     APP_TAGLINE,
     GLOSSARY_HTML,
@@ -58,14 +62,7 @@ from clinitrace.presentation import (
     summarize_resolution,
     ticket_lead_in,
 )
-
-
-# ---------------------------------------------------------------------------
-# Shared helpers
-# ---------------------------------------------------------------------------
-
-
-import re as _re
+from clinitrace.ui import glossary, new_run_wizard, rule_preview, settings_store, task_meta
 
 # Matches ISO-8601 timestamps with timezone offset (Z or +/-HH:MM, optional
 # microseconds). Anchored to digits on both sides so it never eats partial
@@ -1285,10 +1282,9 @@ def _render_reset_everything(saved: dict[str, object]) -> None:
                         st.success(line)
                     st.rerun()
         with col_b:
-            if st.session_state[confirm_key]:
-                if st.button("Cancel", key="reset_cancel_btn"):
-                    st.session_state[confirm_key] = False
-                    st.rerun()
+            if st.session_state[confirm_key] and st.button("Cancel", key="reset_cancel_btn"):
+                st.session_state[confirm_key] = False
+                st.rerun()
 
 
 # ---------------------------------------------------------------------------

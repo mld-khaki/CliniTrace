@@ -2,12 +2,12 @@
 #
 # Streamlit Cloud reads requirements.txt as the most reliable dependency
 # signal. We KEEP pyproject.toml as the canonical source for local dev
-# (uv / pip install -e .), and this file mirrors the runtime + gui
-# extras only — no dev tooling (pytest, ruff, hypothesis) so the cloud
+# (uv / pip install -e .), and this file mirrors runtime dependencies only -
+# no dev tooling (pytest, ruff, hypothesis) so the cloud
 # build is small and fast.
 #
 # When pyproject.toml dependencies change, regenerate this file:
-#   uv export --no-dev --extra gui --format requirements-txt > requirements.txt
+#   uv export --no-dev --format requirements-txt > requirements.txt
 #
 # Core data-pipeline dependencies (from pyproject.toml [project])
 pydantic>=2.6,<3

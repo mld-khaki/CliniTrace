@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
-from enum import Enum
+from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class TicketKind(str, Enum):
+class TicketKind(StrEnum):
     AMBIGUITY = "ambiguity"
     APPROVAL = "approval"
     TRIAGE = "triage"
@@ -23,7 +23,7 @@ def new_event_id() -> str:
 
 
 def _utcnow() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class Ticket(BaseModel):

@@ -34,7 +34,6 @@ from clinitrace.rule_kinds.duration import DurationBody, apply_duration
 from clinitrace.rule_kinds.flag import FlagBody, apply_flag
 from clinitrace.rule_kinds.risk_score import RiskScoreBody, apply_risk_score
 
-
 # ---------------------------------------------------------------------------
 # Bin preview
 # ---------------------------------------------------------------------------
@@ -219,13 +218,10 @@ def _render_flag_preview(body_dict: dict, key_prefix: str) -> None:
     draft_choice = st.session_state[draft_choice_key]
     draft_custom = st.session_state[draft_custom_key]
     if draft_choice == "(other)":
-        draft_value: object = draft_custom if draft_custom != "" else None
         draft_marker = ("other", draft_custom)
     elif draft_choice == "(null)":
-        draft_value = None
         draft_marker = ("null", None)
     else:
-        draft_value = draft_choice
         draft_marker = ("mapped", draft_choice)
 
     if test_clicked or st.session_state[applied_key] == ("__init__", None):
@@ -481,7 +477,7 @@ def _render_compound_preview(body_dict: dict, key_prefix: str) -> None:
             st.text_input(
                 f"`{c}` value",
                 key=col_keys[c],
-                placeholder=f"e.g. 25 or responder",
+                placeholder="e.g. 25 or responder",
                 help=f"Sample value for column `{c}`.",
             )
         st.checkbox(

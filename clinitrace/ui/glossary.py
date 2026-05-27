@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import html
 
-
 GLOSSARY: dict[str, str] = {
     # Core domain
     "IDC": (

@@ -22,7 +22,7 @@ clinitrace.verification.properties.flag.
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -30,7 +30,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from clinitrace.rule_kinds.errors import NullInputError
 
 
-class FlagNullHandling(str, Enum):
+class FlagNullHandling(StrEnum):
     """How apply_flag should treat null inputs."""
 
     NULL = "null"
@@ -38,7 +38,7 @@ class FlagNullHandling(str, Enum):
     ERROR = "error"
 
 
-class FlagUnmappedHandling(str, Enum):
+class FlagUnmappedHandling(StrEnum):
     """How apply_flag should treat inputs that are not declared keys."""
 
     NULL = "null"

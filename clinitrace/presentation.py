@@ -20,6 +20,7 @@ Discipline:
 
 from __future__ import annotations
 
+from datetime import UTC
 
 # --------------------------------------------------------------------------
 # Verification layer names
@@ -313,10 +314,8 @@ COLUMN_LABELS: dict[str, str] = {
     "options_offered":     "Options offered",
     "resolved_by":         "Decided by",
     "free_text_rationale": "Reviewer note",
-    "resolution":          "Decision detail",
     "hitl_event_ids":      "Linked question IDs",
     "hitl_event_id":       "Question ID",
-    "approval_event_id":   "Approval ID",
     "body":                "Rule body (technical)",
     "agent_chain":         "Agent steps",
     "iteration":           "Revision number",
@@ -430,7 +429,7 @@ def humanize_run_id(run_id: str) -> str:
     only, never used as a key.
     """
     try:
-        from datetime import datetime, timezone
+        from datetime import datetime
         from zoneinfo import ZoneInfo
 
         rest = run_id.removeprefix("run-")
@@ -443,7 +442,7 @@ def humanize_run_id(run_id: str) -> str:
             int(ts_part[9:11]),
             int(ts_part[11:13]),
             int(ts_part[13:15]),
-            tzinfo=timezone.utc,
+            tzinfo=UTC,
         )
         try:
             target_tz = ZoneInfo(_DISPLAY_TZ_NAME)

@@ -14,6 +14,8 @@ below.
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from clinitrace.presentation import (
@@ -25,15 +27,23 @@ from clinitrace.presentation import (
     SEVERITY_LABELS,
     TICKET_KIND_LABELS,
     TICKET_KIND_LEAD,
+    humanize_ambiguity_class,
+    humanize_column,
     humanize_event,
+    humanize_event_id,
     humanize_layer,
+    humanize_option,
     humanize_property,
     humanize_rule_kind,
     humanize_severity,
+    humanize_status,
     humanize_ticket_kind,
+    humanize_timestamp,
+    short_fingerprint,
+    summarize_options,
+    summarize_resolution,
     ticket_lead_in,
 )
-
 
 # ---------------------------------------------------------------------------
 # Coverage: every dictionary has the expected internal keys
@@ -206,18 +216,6 @@ def test_glossary_is_ascii() -> None:
 # crashes with "AttributeError: 'float' object has no attribute 'replace'".
 
 
-import math  # noqa: E402
-
-from clinitrace.presentation import (
-    humanize_ambiguity_class,
-    humanize_column,
-    humanize_event,
-    humanize_option,
-    humanize_status,
-    short_fingerprint,
-)
-
-
 _HUMANIZERS_USED_IN_DATAFRAME_MAP = [
     humanize_event,
     humanize_option,
@@ -365,14 +363,6 @@ def test_humanize_columns_preserves_raw_keys_as_input() -> None:
 # ---------------------------------------------------------------------------
 # LTM-cell humanization (Round 3.2 regression guard)
 # ---------------------------------------------------------------------------
-
-
-from clinitrace.presentation import (  # noqa: E402
-    humanize_event_id,
-    humanize_timestamp,
-    summarize_options,
-    summarize_resolution,
-)
 
 
 def test_humanize_timestamp_iso_with_offset() -> None:

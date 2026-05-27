@@ -55,7 +55,7 @@ python -m clinitrace run \
 ## Requirements
 
 ```bash
-pip install -e ".[gui]"  # Installs clinitrace + streamlit + option-menu
+pip install -e "."  # Installs clinitrace, Streamlit, and option-menu
 ```
 
 Or for batch only:
@@ -83,16 +83,16 @@ python -m clinitrace run \
 
 ---
 
-## Demo scenarios — "where does the LLM fire?"
+## Demo scenarios - "where does the LLM fire?"
 
 Two specs ship with the repo:
 
-- **`demo_spec.yaml`** — strict, fully-specified. Used to show the happy
+- **`demo_spec.yaml`** - strict, fully-specified. Used to show the happy
   path and the LTM-warm flow. SR finds at most one ambiguity (the
   `unknown` response value); CG never invokes the LLM because the rule
   bodies are already valid Pydantic.
 
-- **`demo_spec_ambiguous.yaml`** — every rule has a deliberate
+- **`demo_spec_ambiguous.yaml`** - every rule has a deliberate
   rationale-vs-body gap. With cold LTM and live LLM enabled, SR has to
   invoke for each gap and CG has to normalise a real LLM completion into
   a validated body.
@@ -100,15 +100,15 @@ Two specs ship with the repo:
 Datasets under `examples/demo_datasets/` pair with the ambiguous spec to
 isolate one issue at a time:
 
-| Dataset                    | Exposes the gap in… | What goes wrong                                           |
+| Dataset                    | Exposes the gap in | What goes wrong                                           |
 |----------------------------|---------------------|-----------------------------------------------------------|
-| `clean.csv`                | (control)           | Nothing — happy path                                      |
+| `clean.csv`                | (control)           | Nothing - happy path                                      |
 | `unknown_response.csv`     | RESPONSE_FLAG       | 30% have `response='unknown'`, not in the mapping         |
-| `pediatric.csv`            | AGE_GROUP           | Patients under 12 — missing pediatric stratum             |
+| `pediatric.csv`            | AGE_GROUP           | Patients under 12 - missing pediatric stratum             |
 | `negative_duration.csv`    | TREATMENT_DURATION  | `visit_date` before `treatment_start_date` (EDC error)    |
-| `short_exposure.csv`       | ANALYSIS_POP_FLAG   | <7 days of treatment — third inclusion criterion missing  |
-| `critical_labs.csv`        | RISK_GROUP          | Young patient with critical lab — should be 'high'        |
-| `garbled_labs.csv`         | RISK_GROUP          | Free-text lab values ('N/A', 'pending') — type errors     |
+| `short_exposure.csv`       | ANALYSIS_POP_FLAG   | <7 days of treatment - third inclusion criterion missing  |
+| `critical_labs.csv`        | RISK_GROUP          | Young patient with critical lab - should be 'high'        |
+| `garbled_labs.csv`         | RISK_GROUP          | Free-text lab values ('N/A', 'pending') - type errors     |
 
 ### Cold-LTM, live-LLM batch run
 
@@ -139,13 +139,13 @@ Re-running the same command (with LTM enabled this time) should flip to:
 ```
 sr_findings: 5, sr_auto_resolved: 5, hitl_tickets_opened: 0, cg_ltm_hits: 5
 ```
-— exactly the agentic memory loop the design doc describes.
+This is exactly the agentic memory loop the design doc describes.
 
 ### Cold-LTM, live-LLM, interactive HITL via UI
 
-1. Settings → **Reset everything** → tick **LTM database** → confirm.
-2. Settings → enable LLM (Local Ollama), save.
-3. **New Import Task** → upload `unknown_response.csv` → pick the
+1. Settings > **Reset everything** > tick **LTM database** > confirm.
+2. Settings > enable LLM (Local Ollama), save.
+3. **New Import Task** > upload `unknown_response.csv` > pick the
    `demo_spec_ambiguous.yaml`.
 4. **IDC Clarifications** lists each gap; resolve them one by one.
 5. Re-run the same task; LTM hits resolve the ambiguities automatically
@@ -157,8 +157,8 @@ sr_findings: 5, sr_auto_resolved: 5, hitl_tickets_opened: 0, cg_ltm_hits: 5
 
 To wipe user state between demos:
 
-**Via UI:** Settings page → expand **⚠️ Reset everything (advanced)** →
-tick what you want to remove → confirm. You can selectively wipe:
+**Via UI:** Settings page > expand **Reset everything (advanced)** >
+tick what you want to remove > confirm. You can selectively wipe:
 - Settings file (`.clinitrace_settings.json`)
 - LTM database (`demo_ltm.db`)
 - Task history (`demo_out/run-*`)

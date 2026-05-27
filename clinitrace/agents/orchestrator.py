@@ -22,13 +22,11 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
-
-log = logging.getLogger("clinitrace.orch")
 
 from clinitrace.agents import audit as audit_mod
 from clinitrace.agents import cg as cg_agent
@@ -37,21 +35,20 @@ from clinitrace.agents import sr as sr_agent
 from clinitrace.hitl import Inbox, Ticket, TicketKind
 from clinitrace.memory import LTM, STM, NodeStatus
 from clinitrace.memory.stm import RetryRecord
-from clinitrace.rule_kinds import get as get_rule_kind
-from clinitrace.spec.model import Spec, SpecEntry
 from clinitrace.presentation import (
     GLOSSARY,
     humanize_ambiguity_class,
-    humanize_event,
     humanize_layer,
     humanize_option,
     humanize_property,
     humanize_rule_kind,
-    humanize_ticket_kind,
 )
+from clinitrace.rule_kinds import get as get_rule_kind
+from clinitrace.spec.model import Spec, SpecEntry
 from clinitrace.verification import verify_rule_instance
 from clinitrace.verification.findings import Severity
 
+log = logging.getLogger("clinitrace.orch")
 
 _MAX_RETRIES = 3
 
@@ -105,7 +102,7 @@ class RunResult:
 
 
 def _new_run_id() -> str:
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     return f"run-{stamp}-{uuid.uuid4().hex[:6]}"
 
 

@@ -19,7 +19,7 @@ import hashlib
 import json
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from clinitrace.rule_kinds import known_rule_kinds
 

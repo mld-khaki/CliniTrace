@@ -11,9 +11,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from clinitrace.rule_kinds.bin import BinBody, BinNullHandling, apply_bin
+from clinitrace.rule_kinds.bin import BinBody, apply_bin
 from clinitrace.rule_kinds.errors import NullInputError
-
 
 # ---------------------------------------------------------------------------
 # Happy path

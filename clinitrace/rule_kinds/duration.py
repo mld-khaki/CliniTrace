@@ -30,7 +30,7 @@ for a rule that fronts a clinical concept like TREATMENT_DURATION.
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field
@@ -38,7 +38,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from clinitrace.rule_kinds.errors import NullInputError
 
 
-class DurationUnit(str, Enum):
+class DurationUnit(StrEnum):
     """Output unit for the computed delta."""
 
     DAYS = "days"
@@ -47,7 +47,7 @@ class DurationUnit(str, Enum):
     YEARS = "years"    # approximated as 365 days
 
 
-class DurationNullHandling(str, Enum):
+class DurationNullHandling(StrEnum):
     """How apply_duration treats rows with at least one null endpoint."""
 
     NULL = "null"
@@ -83,7 +83,7 @@ class DurationBody(BaseModel):
     unit: DurationUnit = DurationUnit.DAYS
     null_handling: DurationNullHandling = DurationNullHandling.NULL
 
-    def _validate_distinct(self) -> "DurationBody":
+    def _validate_distinct(self) -> DurationBody:
         if self.start_column == self.end_column:
             raise ValueError(
                 f"start_column and end_column must be different "

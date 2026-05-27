@@ -84,22 +84,21 @@ git clone https://github.com/mld-khaki/CliniTrace.git
 cd CliniTrace
 uv python install 3.11
 uv sync
-uv run pytest
+uv run --extra dev pytest
 ```
 
-The GUI ships as an optional extra. Install it with:
+The core CLI and Streamlit UI dependencies are installed by `uv sync`.
+Developer-only tools such as pytest, hypothesis, and ruff live in the
+`dev` extra:
 
 ```
-uv sync --extra gui
+uv sync --extra dev
 ```
-
-This pulls in `streamlit>=1.36` and `streamlit-option-menu>=0.3.6` (the
-top-level menu component).
 
 If `uv` is not available or fails on your filesystem, pip works fine:
 
 ```
-python -m pip install -e ".[gui]" pytest hypothesis pyyaml pyarrow
+python -m pip install -e ".[dev]"
 python -m pytest
 ```
 
@@ -134,8 +133,11 @@ disk, open the GUI (below) and read Documentation > Tutorial.
 ## GUI (Streamlit)
 
 ```
-streamlit run src/clinitrace/ui/streamlit_app.py
+python -m clinitrace ui
 ```
+
+For direct Streamlit launch, use `streamlit run streamlit_app.py` from the
+repository root.
 
 The top of the page carries a horizontal menu with five entries:
 
@@ -200,7 +202,7 @@ CliniTrace/
     demo_spec.yaml
     demo_data.csv
     demo_resolutions.json
-  src/clinitrace/
+  clinitrace/
     cli.py
     __main__.py
     presentation.py   # reviewer-facing labels (GLOSSARY_HTML, TUTORIAL_HTML, ...)
@@ -226,7 +228,7 @@ CliniTrace/
 ## Sanity check
 
 ```
-python -m pytest                    # 78 tests, ~1.5s
+python -m pytest                    # 144 tests
 python -m clinitrace --version
 python -m clinitrace run --help
 ```
@@ -255,9 +257,9 @@ deploys to [share.streamlit.io](https://share.streamlit.io) in three clicks.
 3. Fill in the deploy form:
    - **Repository**: your GitHub URL.
    - **Branch**: `main`.
-   - **Main file path**: `streamlit_app.py` (the root wrapper, not the one
-     under `src/`).
-4. Click **Advanced settings → Secrets**, paste the line below, and save:
+   - **Main file path**: `streamlit_app.py` (the root wrapper, not the package
+     module under `clinitrace/ui/`).
+4. Click **Advanced settings > Secrets**, paste the line below, and save:
    ```
    CLINITRACE_CLOUD_DEMO = "true"
    ```
@@ -271,12 +273,12 @@ deploys to [share.streamlit.io](https://share.streamlit.io) in three clicks.
 
 | Feature | Cloud demo | Local |
 |---|---|---|
-| All five rule kinds (`bin`, `flag`, `duration`, `compound`, `risk_score`) | ✅ | ✅ |
-| Auto-suggest IDC from dataset | ✅ | ✅ |
-| HITL clarifications + IDC Rulebook | ✅ | ✅ |
-| Pre-warmed LTM (immediate cache hits on first visit) | ✅ via shipped `demo_ltm.db` | ✅ |
-| Live LLM (SR + CG calling Ollama) | ❌ stub mode only | ✅ (start Ollama locally) |
-| Persistent state across cold starts | ❌ resets every restart | ✅ |
+| All five rule kinds (`bin`, `flag`, `duration`, `compound`, `risk_score`) | Yes | Yes |
+| Auto-suggest IDC from dataset | Yes | Yes |
+| HITL clarifications + IDC Rulebook | Yes | Yes |
+| Pre-warmed LTM (immediate cache hits on first visit) | Yes, via shipped `demo_ltm.db` | Yes |
+| Live LLM (SR + CG calling Ollama) | No, stub mode only | Yes, with local Ollama |
+| Persistent state across cold starts | No, resets every restart | Yes |
 
 The cloud demo intentionally runs in stub mode because Streamlit Cloud
 cannot reach an LLM running on your machine. The deterministic agents
@@ -286,7 +288,7 @@ agentic loop, clone the repo and run locally:
 ```bash
 git clone https://github.com/<you>/CliniTrace.git
 cd CliniTrace
-uv sync --extra gui
+uv sync
 ollama serve &   # or just have it running in the background
 python -m clinitrace ui
 ```

@@ -7,16 +7,15 @@ run can be replayed for audit (not resumed without re-verification).
 
 from __future__ import annotations
 
-import json
-from datetime import datetime, timezone
-from enum import Enum
+from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class NodeStatus(str, Enum):
+class NodeStatus(StrEnum):
     """DAG-node lifecycle states."""
 
     PENDING = "pending"
@@ -69,7 +68,7 @@ class STM(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     run_id: str
-    started_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    started_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     spec_version: str = "1"
     nodes: dict[str, NodeState] = Field(default_factory=dict)
     execution_order: list[str] = Field(default_factory=list)
