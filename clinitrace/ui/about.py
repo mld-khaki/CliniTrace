@@ -131,7 +131,7 @@ _REPO_STRUCTURE_HTML = """
 │   ├── demo_spec.yaml
 │   ├── demo_spec_ambiguous.yaml   <span style="color:#6b6b78;"># Rule-vs-rationale gaps for live LLM demo</span>
 │   └── demo_datasets/             <span style="color:#6b6b78;"># Per-issue clinical-data scenarios</span>
-└── src/clinitrace/
+└── clinitrace/                <span style="color:#6b6b78;"># Flat package layout (no src/)</span>
     ├── agents/                <span style="color:#6b6b78;"># The six agents that do the work</span>
     │   ├── orchestrator.py    <span style="color:#6b6b78;">#   ⚙️ Sole DAG loop authority</span>
     │   ├── sr.py              <span style="color:#6b6b78;">#   🤖 Spec Reviewer (LLM)</span>

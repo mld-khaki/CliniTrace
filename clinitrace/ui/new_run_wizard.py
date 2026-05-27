@@ -742,11 +742,15 @@ def _render_auto_suggest_panel() -> Spec | None:
 
 
 def _bundled_example_spec_path() -> Path | None:
-    """Look for examples/demo_spec.yaml in a few likely spots."""
+    """Look for examples/demo_spec.yaml in a few likely spots.
+
+    parents[2] resolves the repo root under the **flat** layout
+    (<root>/clinitrace/ui/new_run_wizard.py). If the package layout
+    changes again, adjust this index.
+    """
     candidates = [
         Path.cwd() / "examples" / "demo_spec.yaml",
-        Path.cwd() / "repo" / "examples" / "demo_spec.yaml",
-        Path(__file__).resolve().parents[3] / "examples" / "demo_spec.yaml",
+        Path(__file__).resolve().parents[2] / "examples" / "demo_spec.yaml",
     ]
     for c in candidates:
         if c.exists():

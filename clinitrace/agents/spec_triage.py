@@ -255,7 +255,7 @@ def format_suggestions(unknown: str, suggestions: list[Suggestion]) -> str:
             f"unknown rule_kind {unknown!r}; no close match in the registry. "
             f"Registered kinds: {known_rule_kinds()}. "
             f"If {unknown!r} is a new rule_kind, add it under "
-            f"src/clinitrace/rule_kinds/ and register it in __init__.py."
+            f"clinitrace/rule_kinds/ and register it in __init__.py."
         )
 
     top = suggestions[:3]

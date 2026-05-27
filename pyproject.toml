@@ -35,17 +35,14 @@ dev = [
     "ruff>=0.5",
 ]
 
-# Explicit src/ layout declaration. Without `package-dir`, Streamlit Cloud's
-# `uv` installer was raising "error: Could not find root package
-# `clinitrace`" because it was looking for a top-level `clinitrace/`
-# directory and not respecting the src/ convention. The two-line block
-# below tells every build backend (setuptools, uv, hatch, pip) that the
-# package root lives in src/.
-[tool.setuptools]
-package-dir = {"" = "src"}
-
+# Flat layout: the `clinitrace/` package lives at the repo root, not under
+# src/. We moved away from the src/ layout because Streamlit Cloud's `uv`
+# installer was raising "error: Could not find root package `clinitrace`"
+# during pre-build checks, even with explicit package-dir hints. The
+# flat layout is the canonical default that every installer understands
+# without coaxing.
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["."]
 include = ["clinitrace*"]
 namespaces = false
 

@@ -19,7 +19,7 @@ The HITL ticket-resolution surface (locked in proposal section 5.3) is
 unchanged; only the navigation chrome around it changes in this revision.
 
 Run with:
-    streamlit run src/clinitrace/ui/streamlit_app.py
+    streamlit run clinitrace/ui/streamlit_app.py
 """
 
 from __future__ import annotations
@@ -1248,8 +1248,12 @@ def main() -> None:
     # cascade over (and the wallpaper's `background-image` doesn't
     # collide with them — they target different selectors).
     from clinitrace.ui import wallpaper  # local import: keeps module-level imports tidy
+    # parents[2] gets us to the repo root: this file is at
+    # <root>/clinitrace/ui/streamlit_app.py (flat layout, no src/).
+    # If the layout ever changes again, adjust this index AND the
+    # corresponding one in new_run_wizard.py:_bundled_example_spec_path().
     _wallpaper_path = (
-        Path(__file__).resolve().parents[3] / "docs" / "background_clinitrace.png"
+        Path(__file__).resolve().parents[2] / "docs" / "background_clinitrace.png"
     )
     wallpaper.apply(_wallpaper_path)
 
