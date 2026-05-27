@@ -61,6 +61,15 @@ live_out/
 ltm.db
 *.db
 *.parquet
+# Exception: demo_ltm.db is the read-only seed shipped to the Streamlit
+# Cloud demo so first-time visitors see LTM cache hits immediately.
+# Local dev still gets its own runtime ltm.db (excluded above).
+!demo_ltm.db
+
+# Local-only UI settings file. Contains environment-specific paths and
+# LLM config that should not be in the repo. Streamlit Cloud's deploy
+# starts with defaults, which is exactly what we want.
+.clinitrace_settings.json
 
 # Temporary files
 *.tmp

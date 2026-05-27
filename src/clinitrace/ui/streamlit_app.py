@@ -853,18 +853,41 @@ def _render_settings_page() -> None:
         "generation."
     )
 
-    new_llm_enabled = st.toggle(
-        "Enable LLM",
-        value=_get_pending("llm_enabled", saved),
-        key="llm_enabled_toggle",
-        help=(
-            "Off (stub mode): deterministic fixture-driven responses. No "
-            "network. Recommended for demos and CI.\n\n"
-            "On (live mode): actually call a language model. Requires the "
-            "selected backend to be reachable."
-        ),
-    )
-    _set_pending("llm_enabled", new_llm_enabled)
+    cloud_demo = settings_store.is_cloud_demo()
+    if cloud_demo:
+        # On Streamlit Cloud the user's local Ollama is not reachable, so
+        # enabling live mode would just silently fail back to stub. We
+        # disable the toggle and explain why — better than letting them
+        # toggle it on and watch the LLM never actually fire.
+        st.info(
+            "☁️ **Cloud demo mode** — the LLM toggle is locked off. Live "
+            "LLM mode requires a reachable Ollama (or other backend) "
+            "URL; share.streamlit.io has no access to your local "
+            "machine. To try live LLM, run CliniTrace locally with "
+            "`python -m clinitrace ui`."
+        )
+        st.toggle(
+            "Enable LLM",
+            value=False,
+            disabled=True,
+            key="llm_enabled_toggle_cloud",
+            help="Locked off on Streamlit Cloud — see banner above.",
+        )
+        _set_pending("llm_enabled", False)
+        new_llm_enabled = False
+    else:
+        new_llm_enabled = st.toggle(
+            "Enable LLM",
+            value=_get_pending("llm_enabled", saved),
+            key="llm_enabled_toggle",
+            help=(
+                "Off (stub mode): deterministic fixture-driven responses. No "
+                "network. Recommended for demos and CI.\n\n"
+                "On (live mode): actually call a language model. Requires the "
+                "selected backend to be reachable."
+            ),
+        )
+        _set_pending("llm_enabled", new_llm_enabled)
 
     backend_options = ["Local (Ollama)", "LangChain (planned)", "LangGraph (planned)"]
     current_backend = _get_pending("llm_backend", saved)
@@ -1328,6 +1351,19 @@ def main() -> None:
     # page body. Visually anchors the menu as part of the app chrome rather
     # than as part of whatever page the user is on.
     st.divider()
+
+    # Persistent cloud-demo banner. Renders on every page (just under the
+    # header) so users on share.streamlit.io always know the LLM is off.
+    # We use st.info (not st.warning) because this is informational, not a
+    # problem state — the app is operating exactly as configured.
+    if settings_store.is_cloud_demo():
+        st.info(
+            "☁️ **You're viewing the Cloud demo** — running in stub mode "
+            "(no live LLM, deterministic fixture responses). To exercise "
+            "the live agentic loop with a real LLM, clone the repo and run "
+            "locally: `python -m clinitrace ui`. State (LTM, audit) resets "
+            "on each cold start."
+        )
 
     # Show a small jargon-busters panel at the top of every page.
     with st.expander("📖 Jargon-busters (terms used in this app)", expanded=False):

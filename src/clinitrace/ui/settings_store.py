@@ -39,6 +39,35 @@ DEFAULTS: dict[str, Any] = {
 }
 
 
+def is_cloud_demo() -> bool:
+    """True when the app is running on Streamlit Community Cloud (or any
+    environment that explicitly opts into cloud-demo mode).
+
+    Detection precedence (first that matches wins):
+
+      1. ``CLINITRACE_CLOUD_DEMO`` env var set to a truthy value. Easiest
+         to set on Streamlit Cloud — just add it under Settings > Secrets
+         on share.streamlit.io and it appears as an env var to the app.
+
+      2. Streamlit's own ``IS_RUNNING_IN_STREAMLIT_CLOUD`` hint, if
+         present (set by the Cloud runtime in some images).
+
+      3. The presence of the canonical Cloud mount path ``/mount/src``,
+         which is where share.streamlit.io extracts the repo.
+
+    Why a function and not a module-level constant: env vars can change
+    between worker restarts on Cloud, and tests need to be able to
+    monkeypatch without re-importing the module.
+    """
+    if os.environ.get("CLINITRACE_CLOUD_DEMO", "").lower() in ("1", "true", "yes", "on"):
+        return True
+    if os.environ.get("IS_RUNNING_IN_STREAMLIT_CLOUD"):
+        return True
+    if Path("/mount/src").exists():
+        return True
+    return False
+
+
 def config_path() -> Path:
     return Path.cwd() / CONFIG_FILE_NAME
 

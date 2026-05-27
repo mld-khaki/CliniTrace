@@ -241,6 +241,70 @@ Exit codes:
 - 2 -- run completed but one or more derivations are unresolved
 - 3 -- pre-DAG dataset validation failed (missing source columns)
 
+## Deploy to Streamlit Community Cloud
+
+CliniTrace ships with a root-level `streamlit_app.py` entry point so it
+deploys to [share.streamlit.io](https://share.streamlit.io) in three clicks.
+
+### One-time setup
+
+1. Fork or push this repo to your own GitHub account (public required for
+   the free tier).
+2. Go to [share.streamlit.io](https://share.streamlit.io), click **New app**.
+3. Fill in the deploy form:
+   - **Repository**: your GitHub URL.
+   - **Branch**: `main`.
+   - **Main file path**: `streamlit_app.py` (the root wrapper, not the one
+     under `src/`).
+4. Click **Advanced settings → Secrets**, paste the line below, and save:
+   ```
+   CLINITRACE_CLOUD_DEMO = "true"
+   ```
+   This trips the cloud-demo banner and locks the LLM toggle off (see
+   "What the cloud demo can and can't do" below).
+5. Click **Deploy**. First build pulls dependencies from
+   `requirements.txt` and takes ~2 minutes. Subsequent deploys cache the
+   environment.
+
+### What the cloud demo can and can't do
+
+| Feature | Cloud demo | Local |
+|---|---|---|
+| All five rule kinds (`bin`, `flag`, `duration`, `compound`, `risk_score`) | ✅ | ✅ |
+| Auto-suggest IDC from dataset | ✅ | ✅ |
+| HITL clarifications + IDC Rulebook | ✅ | ✅ |
+| Pre-warmed LTM (immediate cache hits on first visit) | ✅ via shipped `demo_ltm.db` | ✅ |
+| Live LLM (SR + CG calling Ollama) | ❌ stub mode only | ✅ (start Ollama locally) |
+| Persistent state across cold starts | ❌ resets every restart | ✅ |
+
+The cloud demo intentionally runs in stub mode because Streamlit Cloud
+cannot reach an LLM running on your machine. The deterministic agents
+(V, R, A, O) work identically in both environments. For the full live
+agentic loop, clone the repo and run locally:
+
+```bash
+git clone https://github.com/<you>/CliniTrace.git
+cd CliniTrace
+uv sync --extra gui
+ollama serve &   # or just have it running in the background
+python -m clinitrace ui
+```
+
+### Cleaning up before your first push
+
+The repo includes a few local-environment files that shouldn't ship to
+the cloud demo. Run these once before pushing:
+
+```bash
+git rm --cached .clinitrace_settings.json
+git rm --cached --ignore-unmatch ltm.db
+git commit -m "chore: remove local-env files from tracking"
+```
+
+`demo_ltm.db` IS tracked (read-only seed for the cloud demo).
+`.clinitrace_settings.json`, `ltm.db`, `demo_out/` are gitignored after
+this change.
+
 ## License
 
 Released under the [MIT License](LICENSE). See `LICENSE` for the full text.
