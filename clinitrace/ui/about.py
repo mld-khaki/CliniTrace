@@ -1,28 +1,47 @@
 """'About' page content for the CliniTrace Documentation menu.
 
-Mirrors the structure of presentation.GLOSSARY_HTML and TUTORIAL_HTML:
-exports a single ABOUT_HTML string the Streamlit page renders via
-``st.markdown(ABOUT_HTML, unsafe_allow_html=True)``.
+Renders the page via a single ``render()`` function that mixes Streamlit
+primitives:
 
-Keeping the content here (in the UI package) rather than in
-presentation.py because this is a UI-only artifact — it has no bearing
-on the pipeline, the audit trail, or anything outside the GUI.
+  - ``st.markdown(html, unsafe_allow_html=True)`` for the prose sections
+    and tech-stack table — those are real HTML and Streamlit's markdown
+    pipeline handles them cleanly.
 
-Three sections, in this order:
-  1. Project overview + author card (who built it, where to find it).
-  2. Repository structure walkthrough (high-level map of the codebase).
-  3. Tech stack + architecture decisions (anticipates the 'why X and
-     not Y?' question that a reviewer will ask).
+  - ``st.code(text, language=None)`` for the repository tree. The previous
+    approach (a styled ``<pre>`` inside ``st.markdown``) had its newlines
+    collapsed by markdown processing on render — the tree came out as one
+    flat run-on line. ``st.code`` preserves whitespace, monospaces the
+    font, and adds a copy button for free.
+
+The mixed-primitive approach is a slight break from the
+``presentation.GLOSSARY_HTML`` / ``TUTORIAL_HTML`` pattern (which export
+a single HTML string), but those two sections are pure prose. The About
+page has a code-shaped tree that needs different handling.
+
+Three sections, in render order:
+  1. Project overview + author card.
+  2. Repository structure walkthrough (with a code-block tree).
+  3. Tech stack + architecture decisions.
 
 Editing notes for future maintainers:
   - _LINKEDIN_URL is None by default (LinkedIn row hidden). To add it,
     replace None with a string like "https://www.linkedin.com/in/yourname/"
     and the row appears automatically.
-  - Author name and GitHub URL are derived from pyproject.toml so a fork
-    can update _AUTHOR_NAME and _GITHUB_URL once and re-render correctly.
+  - Author name + GitHub URL are the two knobs anyone forking the
+    project should change. Both are at the top of this file.
+  - The repo tree text is a plain string — no HTML — because st.code
+    doesn't process HTML. To highlight specific lines, switch the
+    `language` argument from None to a sensible filetype hint
+    (e.g. 'bash') so the tree gets light syntax colouring.
 """
 
 from __future__ import annotations
+
+import base64
+import logging
+from pathlib import Path
+
+log = logging.getLogger("clinitrace.ui.about")
 
 
 # ---------------------------------------------------------------------------
@@ -30,48 +49,110 @@ from __future__ import annotations
 # ---------------------------------------------------------------------------
 
 _AUTHOR_NAME = "Milad Khaki"
-
-# GitHub URL — derived from the repo this code lives in. If you fork the
-# project, update this to point at your own fork so the About page shows
-# the correct source link.
 _GITHUB_URL = "https://github.com/mld-khaki/CliniTrace"
+_LINKEDIN_URL: str | None = None  # set to a URL string to show LinkedIn row
 
-# LinkedIn URL. Set to None (default) to hide the LinkedIn row entirely
-# — that's the current choice for the public cloud demo. Set to a full
-# URL (e.g. "https://www.linkedin.com/in/yourname/") to show a LinkedIn
-# row in the contact card.
-_LINKEDIN_URL: str | None = None
+# Author avatar. Resolved relative to THIS file so the path is correct
+# regardless of CWD. Set to None to suppress the photo entirely.
+# parents[2] is the repo root under the flat layout:
+#   <root>/clinitrace/ui/about.py
+_AVATAR_PATH: Path | None = (
+    Path(__file__).resolve().parents[2] / "docs" / "avatar_milad_khaki.jpg"
+)
+
+
+def _avatar_data_url() -> str | None:
+    """Base64-embed the avatar so it ships inline in the HTML.
+
+    Why inline rather than a /static/ URL: Streamlit's static-file
+    serving depends on `server.enableStaticServing` and a static/ folder
+    next to the entry script. Embedding as a data URL sidesteps both.
+    The avatar is ~30 KB, so base64 adds ~10 KB to the About page —
+    fine for a page that loads once per session.
+    """
+    if _AVATAR_PATH is None or not _AVATAR_PATH.exists():
+        return None
+    try:
+        raw = _AVATAR_PATH.read_bytes()
+    except OSError as exc:
+        log.debug("avatar not loaded (%s): %s", _AVATAR_PATH, exc)
+        return None
+    # Detect format from magic bytes so we set the right MIME type. PNG
+    # starts with \x89PNG, JPEG with \xff\xd8\xff. Default to jpeg.
+    if raw.startswith(b"\x89PNG"):
+        mime = "image/png"
+    else:
+        mime = "image/jpeg"
+    encoded = base64.b64encode(raw).decode("ascii")
+    return f"data:{mime};base64,{encoded}"
 
 
 def _contact_card_html() -> str:
-    """Render the author card, hiding any contact channel that's missing
-    or still set to its placeholder value. Keeps the page from showing a
-    broken LinkedIn link if the maintainer hasn't filled in their URL.
+    """Render the author card. Two-column flex layout: avatar on the
+    left, name + role + links on the right. Each subcomponent degrades
+    gracefully — missing avatar drops the left column, missing LinkedIn
+    drops the LinkedIn row.
+
+    Why a flex layout and not a CSS grid: flex with `align-items:center`
+    is the simplest cross-browser pattern for "image next to text"
+    that handles the case where the right column gets taller (more
+    links) without distorting the avatar.
     """
-    lines = [
-        '<div style="border:1px solid #e5e7eb;border-radius:8px;'
-        'padding:16px 20px;background:#f9fafb;margin:1em 0;">'
-    ]
-    lines.append(f'<div style="font-size:1.05em;font-weight:600;'
-                 f'color:#1f1f2a;">{_AUTHOR_NAME}</div>')
-    lines.append('<div style="color:#6b6b78;font-size:0.9em;'
-                 'margin-bottom:0.5em;">'
-                 'Author &amp; maintainer</div>')
+    avatar_url = _avatar_data_url()
 
     rows: list[tuple[str, str]] = []
     rows.append(("🌐 GitHub", _GITHUB_URL))
     if _LINKEDIN_URL:
         rows.append(("💼 LinkedIn", _LINKEDIN_URL))
 
-    lines.append('<div style="font-size:0.92em;line-height:1.7;">')
+    # Build the right-column text block first (we use it whether or not
+    # there's an avatar; if no avatar, we just don't wrap it in a flex
+    # container).
+    right_col_parts = [
+        f'<div style="font-size:1.05em;font-weight:600;'
+        f'color:#1f1f2a;">{_AUTHOR_NAME}</div>',
+        '<div style="color:#6b6b78;font-size:0.9em;'
+        'margin-bottom:0.5em;">Author &amp; maintainer</div>',
+        '<div style="font-size:0.92em;line-height:1.7;">',
+    ]
     for label, url in rows:
-        lines.append(
+        right_col_parts.append(
             f'<div>{label}: <a href="{url}" target="_blank" '
             f'rel="noopener noreferrer">{url}</a></div>'
         )
-    lines.append('</div>')
-    lines.append('</div>')
-    return "".join(lines)
+    right_col_parts.append("</div>")
+    right_col_html = "".join(right_col_parts)
+
+    # Card outer styling — unchanged from before.
+    card_open = (
+        '<div style="border:1px solid #e5e7eb;border-radius:8px;'
+        'padding:16px 20px;background:#f9fafb;margin:1em 0;">'
+    )
+    card_close = "</div>"
+
+    if avatar_url is None:
+        # No photo available — fall back to the text-only layout.
+        return card_open + right_col_html + card_close
+
+    # Photo present: render as a flex row. The avatar is a fixed-size
+    # circle (80px) with a thin border and a subtle shadow. The right
+    # column flexes to fill remaining width.
+    avatar_html = (
+        f'<div style="flex:0 0 auto;margin-right:18px;">'
+        f'<img src="{avatar_url}" alt="{_AUTHOR_NAME}" '
+        f'style="width:80px;height:80px;border-radius:50%;'
+        f'object-fit:cover;border:2px solid #e5e7eb;'
+        f'box-shadow:0 1px 3px rgba(0,0,0,0.08);" />'
+        f'</div>'
+    )
+    flex_open = (
+        '<div style="display:flex;align-items:center;">'
+    )
+    return (
+        card_open + flex_open + avatar_html
+        + '<div style="flex:1 1 auto;">' + right_col_html + '</div>'
+        + '</div>' + card_close
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -107,53 +188,53 @@ _OVERVIEW_HTML = """
 # Section 2 — Repository structure walkthrough
 # ---------------------------------------------------------------------------
 #
-# Kept high-level: a reviewer browsing the deployed demo doesn't need
-# every subfolder, just the architectural shape. Anyone wanting more
-# detail can click through to GitHub.
+# The tree below is rendered via st.code, NOT st.markdown. Plain text only
+# — no HTML, no inline styling. st.code preserves the whitespace and the
+# box-drawing characters that the tree relies on.
 
-_REPO_STRUCTURE_HTML = """
+_REPO_STRUCTURE_INTRO_HTML = """
 <h4>Repository structure</h4>
 <p style="font-size:0.92em;color:#4b5563;margin-top:-0.3em;">
   High-level map. See the
   <a href="https://github.com/mld-khaki/CliniTrace" target="_blank"
      rel="noopener noreferrer">GitHub source</a> for the full tree.
 </p>
-<pre style="background:#f5f7fb;border:1px solid #e5e7eb;border-radius:6px;
-            padding:12px 16px;font-size:0.85em;line-height:1.5;
-            color:#1f1f2a;overflow-x:auto;"><span style="color:#313EF3;
-            font-weight:600;">CliniTrace/</span>
-├── streamlit_app.py           <span style="color:#6b6b78;"># Streamlit Cloud entry point (root wrapper)</span>
-├── requirements.txt           <span style="color:#6b6b78;"># Cloud build deps</span>
-├── pyproject.toml             <span style="color:#6b6b78;"># Local-dev deps + tooling config</span>
-├── docs/                      <span style="color:#6b6b78;"># Wallpaper, screenshots, design notes</span>
-├── examples/                  <span style="color:#6b6b78;"># Demo datasets + IDC YAML files</span>
+"""
+
+_REPO_TREE_TEXT = """\
+CliniTrace/
+├── streamlit_app.py             # Streamlit Cloud entry point (root wrapper)
+├── requirements.txt             # Cloud build deps
+├── pyproject.toml               # Local-dev deps + tooling config
+├── uv.lock                      # Pinned dependency graph (uv-managed)
+├── docs/                        # Wallpaper, screenshots, design notes
+├── examples/                    # Demo datasets + IDC YAML files
 │   ├── demo_data.csv
 │   ├── demo_spec.yaml
-│   ├── demo_spec_ambiguous.yaml   <span style="color:#6b6b78;"># Rule-vs-rationale gaps for live LLM demo</span>
-│   └── demo_datasets/             <span style="color:#6b6b78;"># Per-issue clinical-data scenarios</span>
-└── clinitrace/                <span style="color:#6b6b78;"># Flat package layout (no src/)</span>
-    ├── agents/                <span style="color:#6b6b78;"># The six agents that do the work</span>
-    │   ├── orchestrator.py    <span style="color:#6b6b78;">#   ⚙️ Sole DAG loop authority</span>
-    │   ├── sr.py              <span style="color:#6b6b78;">#   🤖 Spec Reviewer (LLM)</span>
-    │   ├── cg.py              <span style="color:#6b6b78;">#   🤖 Code Generator (LLM)</span>
-    │   ├── refinement.py      <span style="color:#6b6b78;">#   ⚙️ Deterministic patch table</span>
-    │   ├── audit.py           <span style="color:#6b6b78;">#   ⚙️ Lineage + audit trail writer</span>
-    │   ├── spec_triage.py     <span style="color:#6b6b78;">#   ⚙️ Suggests fixes for unknown rule_kinds</span>
-    │   └── spec_generator.py  <span style="color:#6b6b78;">#   ⚙️ Auto-IDC from dataset (deterministic + LLM)</span>
-    ├── llm/                   <span style="color:#6b6b78;"># Single dispatch fork: stub vs Ollama-live</span>
-    ├── rule_kinds/            <span style="color:#6b6b78;"># Five registered transformations</span>
+│   ├── demo_spec_ambiguous.yaml # Rule-vs-rationale gaps for live LLM demo
+│   └── demo_datasets/           # Per-issue clinical-data scenarios
+└── clinitrace/                  # Flat package layout (no src/)
+    ├── agents/                  # The six agents that do the work
+    │   ├── orchestrator.py      #   ⚙️ Sole DAG loop authority
+    │   ├── sr.py                #   🤖 Spec Reviewer (LLM)
+    │   ├── cg.py                #   🤖 Code Generator (LLM)
+    │   ├── refinement.py        #   ⚙️ Deterministic patch table
+    │   ├── audit.py             #   ⚙️ Lineage + audit trail writer
+    │   ├── spec_triage.py       #   ⚙️ Suggests fixes for unknown rule_kinds
+    │   └── spec_generator.py    #   ⚙️ Auto-IDC from dataset (deterministic + LLM)
+    ├── llm/                     # Single dispatch fork: stub vs Ollama-live
+    ├── rule_kinds/              # Five registered transformations
     │   ├── bin.py, flag.py, duration.py, compound.py, risk_score.py
-    │   └── __init__.py        <span style="color:#6b6b78;">#   REGISTRY: name → (body class, apply fn)</span>
-    ├── spec/                  <span style="color:#6b6b78;"># IDC Pydantic models + YAML loader</span>
-    ├── memory/                <span style="color:#6b6b78;"># STM (per-run state) + LTM (SQLite across runs)</span>
-    ├── verification/          <span style="color:#6b6b78;"># L1 + L2 + L_p property suites — fully deterministic</span>
-    ├── hitl/                  <span style="color:#6b6b78;"># File-based inbox/outbox for reviewer tickets</span>
-    └── ui/                    <span style="color:#6b6b78;"># Streamlit pages, glossary, settings</span>
-        ├── streamlit_app.py   <span style="color:#6b6b78;">#   Top-level page router</span>
-        ├── new_run_wizard.py  <span style="color:#6b6b78;">#   5-step Import Task wizard</span>
-        ├── about.py           <span style="color:#6b6b78;">#   You are here</span>
+    │   └── __init__.py          #   REGISTRY: name → (body class, apply fn)
+    ├── spec/                    # IDC Pydantic models + YAML loader
+    ├── memory/                  # STM (per-run state) + LTM (SQLite across runs)
+    ├── verification/            # L1 + L2 + L_p property suites — fully deterministic
+    ├── hitl/                    # File-based inbox/outbox for reviewer tickets
+    └── ui/                      # Streamlit pages, glossary, settings
+        ├── streamlit_app.py     #   Top-level page router
+        ├── new_run_wizard.py    #   5-step Import Task wizard
+        ├── about.py             #   You are here
         └── ...
-</pre>
 """
 
 
@@ -275,25 +356,30 @@ _TECH_STACK_HTML = """
 
 
 # ---------------------------------------------------------------------------
-# Public composed HTML (concatenated in render order)
+# Render
 # ---------------------------------------------------------------------------
 
 
-def render_html() -> str:
-    """Return the full About page HTML, ready for st.markdown.
+def render() -> None:
+    """Render the full About page.
 
-    Wrapping the contact card in a function (not a module-level string)
-    means a future change that hides LinkedIn / GitHub conditionally
-    only needs to edit one place.
+    Mixes ``st.markdown`` (for the prose / table / contact card sections,
+    which are rich HTML) and ``st.code`` (for the repo tree, which needs
+    its whitespace preserved). Called from streamlit_app's Documentation
+    sub-menu dispatch.
     """
-    return (
-        _OVERVIEW_HTML
-        + _contact_card_html()
-        + _REPO_STRUCTURE_HTML
-        + _TECH_STACK_HTML
-    )
+    # Lazy import — keeps the test suite import-light for modules that
+    # don't have streamlit installed at all (e.g. CI minimal envs).
+    import streamlit as st  # noqa: PLC0415
 
+    # Section 1: overview + contact card. One st.markdown call so the
+    # card visually attaches to the prose above it without an extra gap.
+    st.markdown(_OVERVIEW_HTML + _contact_card_html(), unsafe_allow_html=True)
 
-# Module-level alias so the streamlit_app dispatch reads identically to
-# the existing GLOSSARY_HTML / TUTORIAL_HTML pattern.
-ABOUT_HTML = render_html()
+    # Section 2: repo structure. Intro paragraph as HTML; tree as a code
+    # block so the whitespace + box-drawing characters survive intact.
+    st.markdown(_REPO_STRUCTURE_INTRO_HTML, unsafe_allow_html=True)
+    st.code(_REPO_TREE_TEXT, language=None)
+
+    # Section 3: tech stack table + architecture discussion.
+    st.markdown(_TECH_STACK_HTML, unsafe_allow_html=True)

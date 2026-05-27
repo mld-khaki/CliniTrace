@@ -705,9 +705,8 @@ def _render_ltm_page(ltm_path: Path) -> None:
 
 
 def _render_documentation_page() -> None:
-    # Lazy import for `about` so the (somewhat large) ABOUT_HTML string
-    # only loads when this page is opened, not on every Streamlit rerun.
-    # Matches the pattern presentation.py uses for its lazy assets.
+    # Lazy import for `about` — its module-level state is small but
+    # matches the pattern presentation.py uses for its lazy assets.
     from clinitrace.ui import about as about_page  # noqa: PLC0415
 
     st.subheader("Documentation")
@@ -730,7 +729,10 @@ def _render_documentation_page() -> None:
     elif sub_choice == "Tutorial":
         st.markdown(TUTORIAL_HTML, unsafe_allow_html=True)
     else:
-        st.markdown(about_page.ABOUT_HTML, unsafe_allow_html=True)
+        # About uses st.code() for the repo tree (whitespace preservation)
+        # plus st.markdown for the prose around it — so we delegate to
+        # about.render() rather than emitting one big HTML blob.
+        about_page.render()
 
 
 # ---------------------------------------------------------------------------
